@@ -29,6 +29,9 @@ class TestConfigDefaults:
     def test_default_openrouter_model(self, config):
         assert config.get("openrouter_model") == "google/gemma-3-4b-it:free"
 
+    def test_default_setup_complete(self, config):
+        assert config.get("setup_complete") is False
+
 
 class TestConfigGetSet:
     def test_get_existing_key(self, config):

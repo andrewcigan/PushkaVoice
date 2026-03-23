@@ -21,6 +21,7 @@ DEFAULT_SETTINGS = {
     "llm_provider": "local",  # "local" (Ollama) or "openrouter"
     "openrouter_api_key": "",
     "openrouter_model": "google/gemma-3-4b-it:free",
+    "setup_complete": False,
 }
 
 CONFIG_PATH = _DATA_DIR / "config" / "settings.json"

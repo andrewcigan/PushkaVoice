@@ -6,7 +6,6 @@ on:
       - claude/llm-provider-settings-fr4tr
       - main
     paths-ignore:
-      - 'tests/**'
       - '*.md'
       - '.gitignore'
 
@@ -73,9 +72,11 @@ jobs:
 
             **Features:**
             - GigaAM v3 speech recognition (downloaded on first launch)
-            - LLM text cleanup: Local Ollama or OpenRouter cloud API
+            - LLM provider setup screen at startup (Local Ollama or Cloud OpenRouter)
+            - Real download progress bar with speed, ETA, and file size
             - Global hotkey for quick recording
             - Auto-paste to active app
+            - Web inspector disabled in production
 
             **Requirements:**
             - macOS 14+ (Apple Silicon)

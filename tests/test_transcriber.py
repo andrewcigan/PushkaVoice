@@ -23,6 +23,54 @@ class TestTranscriberInit:
         assert not t.is_ready
         assert not t.is_loading
 
+    def test_initial_download_tracking_fields(self):
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        assert t._download_speed == 0.0
+        assert t._download_eta == 0
+        assert t._downloaded_mb == 0.0
+        assert t._total_mb == 0.0
+        assert t._speed_samples == []
+
+
+class TestTranscriberGetStatus:
+    def test_initial_status(self):
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        status = t.get_status()
+        assert status["message"] == "Waiting..."
+        assert status["progress"] == 0
+        assert status["downloading"] is False
+        assert status["loading"] is False
+        assert status["ready"] is False
+        assert status["speed_mbs"] == 0.0
+        assert status["eta_seconds"] == 0
+        assert status["downloaded_mb"] == 0.0
+        assert status["total_mb"] == 0.0
+
+    def test_status_after_load(self, mock_gigaam):
+        mock_gigaam.load_model.return_value = MagicMock()
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+        status = t.get_status()
+        assert status["ready"] is True
+        assert status["loading"] is False
+        assert status["downloading"] is False
+
+    def test_status_contains_speed_fields(self):
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t._download_speed = 5 * 1024 * 1024  # 5 MB/s
+        t._download_eta = 90
+        t._downloaded_mb = 250.5
+        t._total_mb = 500.0
+        status = t.get_status()
+        assert status["speed_mbs"] == 5.0
+        assert status["eta_seconds"] == 90
+        assert status["downloaded_mb"] == 250.5
+        assert status["total_mb"] == 500.0
+
 
 class TestTranscriberProperties:
     def test_is_ready_false_before_load(self):
@@ -83,6 +131,37 @@ class TestTranscriberWaitUntilReady:
         # Never load model, so wait should time out
         result = t.wait_until_ready(timeout=0.1)
         assert result is False
+
+
+class TestTranscriberDownloadMonitor:
+    def test_speed_calculation_with_samples(self):
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        # Simulate speed samples: 100MB over 2 seconds
+        t._speed_samples = [
+            (100.0, 0),
+            (101.0, 50_000_000),
+            (102.0, 100_000_000),
+        ]
+        t._download_speed = 50_000_000  # 50 MB/s
+        t._download_eta = 8  # 8 seconds
+        t._downloaded_mb = 100.0
+        t._total_mb = 500.0
+        t._is_downloading = True
+
+        status = t.get_status()
+        assert status["speed_mbs"] == 47.7  # 50MB/s rounded
+        assert status["eta_seconds"] == 8
+        assert status["downloaded_mb"] == 100.0
+        assert status["total_mb"] == 500.0
+        assert status["downloading"] is True
+
+    def test_initial_speed_is_zero(self):
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        status = t.get_status()
+        assert status["speed_mbs"] == 0.0
+        assert status["eta_seconds"] == 0
 
 
 class TestTranscriberTranscribe:

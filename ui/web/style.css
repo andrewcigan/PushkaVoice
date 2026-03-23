@@ -29,6 +29,107 @@ body {
   user-select: none;
 }
 
+/* Setup Screen */
+.setup-screen {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  transition: opacity 0.5s ease;
+}
+
+.setup-screen.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.setup-content {
+  text-align: center;
+  padding: 40px 24px;
+  max-width: 380px;
+  width: 100%;
+}
+
+.setup-title {
+  font-size: 22px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  letter-spacing: -0.3px;
+}
+
+.setup-subtitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 24px;
+}
+
+.setup-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.setup-option {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+  background: var(--bg-card);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: left;
+  color: var(--text);
+}
+
+.setup-option:hover {
+  border-color: var(--accent);
+  background: var(--bg-secondary);
+}
+
+.setup-option:active {
+  transform: scale(0.98);
+}
+
+.setup-option-icon {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.setup-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.setup-option-text strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.setup-option-text span {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.setup-note {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
 /* Download/Loading Screen */
 .download-screen {
   position: fixed;
@@ -107,6 +208,14 @@ body {
   font-size: 12px;
   color: var(--text-secondary);
   opacity: 0.6;
+}
+
+.download-speed {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .app {

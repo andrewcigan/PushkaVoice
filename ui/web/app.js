@@ -1,5 +1,5 @@
 // State
-let state = 'idle'; // idle, recording, transcribing, loading
+let state = 'idle'; // idle, recording, transcribing, loading, setup
 let timerInterval = null;
 let timerSeconds = 0;
 
@@ -24,9 +24,13 @@ const openrouterSettings = document.getElementById('openrouter-settings');
 const openrouterKeyInput = document.getElementById('openrouter-key');
 const openrouterModelInput = document.getElementById('openrouter-model');
 const historyList = document.getElementById('history-list');
+const setupScreen = document.getElementById('setup-screen');
+const setupLocalBtn = document.getElementById('setup-local');
+const setupCloudBtn = document.getElementById('setup-cloud');
 const downloadScreen = document.getElementById('download-screen');
 const downloadStatus = document.getElementById('download-status');
 const downloadDetail = document.getElementById('download-detail');
+const downloadSpeed = document.getElementById('download-speed');
 const progressBar = document.getElementById('progress-bar');
 
 // Format hotkey for display
@@ -39,6 +43,15 @@ function formatHotkey(raw) {
     .replace(/<space>/g, 'Space')
     .replace(/<f(\d+)>/g, 'F$1')
     .replace(/\+/g, ' + ');
+}
+
+// Format ETA
+function formatEta(seconds) {
+  if (seconds <= 0) return '';
+  if (seconds < 60) return `~${seconds}s remaining`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `~${m}m ${s}s remaining`;
 }
 
 // Timer
@@ -67,7 +80,14 @@ function setState(newState) {
   state = newState;
 
   switch (state) {
+    case 'setup':
+      setupScreen.classList.remove('hidden');
+      downloadScreen.classList.add('hidden');
+      recordBtn.disabled = true;
+      break;
+
     case 'downloading':
+      setupScreen.classList.add('hidden');
       statusBadge.textContent = 'Downloading...';
       statusBadge.className = 'badge badge-loading';
       recordBtn.disabled = true;
@@ -77,6 +97,7 @@ function setState(newState) {
       break;
 
     case 'loading':
+      setupScreen.classList.add('hidden');
       statusBadge.textContent = 'Loading model...';
       statusBadge.className = 'badge badge-loading';
       recordBtn.disabled = true;
@@ -86,10 +107,12 @@ function setState(newState) {
       progressBar.classList.add('indeterminate');
       progressBar.style.width = '30%';
       downloadDetail.textContent = '';
+      downloadSpeed.textContent = '';
       startStatusPolling();
       break;
 
     case 'idle':
+      setupScreen.classList.add('hidden');
       statusBadge.textContent = 'Ready';
       statusBadge.className = 'badge badge-ready';
       recordBtn.disabled = false;
@@ -128,6 +151,15 @@ function setState(newState) {
       break;
   }
 }
+
+// Setup screen handlers
+async function handleSetupChoice(provider) {
+  await pywebview.api.complete_setup(provider);
+  setState('loading');
+}
+
+setupLocalBtn.addEventListener('click', () => handleSetupChoice('local'));
+setupCloudBtn.addEventListener('click', () => handleSetupChoice('openrouter'));
 
 // Record button click
 recordBtn.addEventListener('click', async () => {
@@ -311,17 +343,32 @@ function startStatusPolling() {
         downloadStatus.textContent = status.message;
         progressBar.classList.remove('indeterminate');
         progressBar.style.width = status.progress + '%';
-        downloadDetail.textContent = status.progress + '% complete';
+
+        // Show real download details
+        const detail = `${status.downloaded_mb} / ${status.total_mb} MB  (${status.progress}%)`;
+        downloadDetail.textContent = detail;
+
+        // Show speed and ETA
+        const parts = [];
+        if (status.speed_mbs > 0) {
+          parts.push(`${status.speed_mbs} MB/s`);
+        }
+        if (status.eta_seconds > 0) {
+          parts.push(formatEta(status.eta_seconds));
+        }
+        downloadSpeed.textContent = parts.join('  \u2022  ');
       } else if (status.loading) {
         downloadStatus.textContent = 'Loading model...';
         progressBar.classList.add('indeterminate');
         progressBar.style.width = '30%';
         downloadDetail.textContent = 'Initializing speech recognition';
+        downloadSpeed.textContent = '';
       } else if (status.ready) {
         downloadStatus.textContent = 'Ready!';
         progressBar.classList.remove('indeterminate');
         progressBar.style.width = '100%';
         downloadDetail.textContent = '';
+        downloadSpeed.textContent = '';
       }
     } catch (e) {
       // ignore
@@ -342,7 +389,13 @@ async function init() {
   if (initialized) return;
   initialized = true;
 
-  setState('loading');
+  // Check if setup is needed
+  const setupComplete = await pywebview.api.is_setup_complete();
+  if (!setupComplete) {
+    setState('setup');
+  } else {
+    setState('loading');
+  }
 
   // Load config
   const config = await pywebview.api.get_config();
@@ -380,7 +433,7 @@ async function init() {
     if (!window.pywebview || !window.pywebview.api) return;
     try {
       const backendState = await pywebview.api.get_state();
-      if (backendState !== state) {
+      if (backendState !== state && state !== 'setup') {
         if (backendState === 'idle' && (state === 'transcribing' || state === 'loading')) {
           await loadHistory();
         }

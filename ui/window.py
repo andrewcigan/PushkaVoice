@@ -72,6 +72,19 @@ class Api:
         if key == "hotkey":
             logger.info(f"Hotkey changed to: {value}")
 
+    def is_setup_complete(self):
+        """Check if initial setup has been completed."""
+        return self.config.get("setup_complete", False)
+
+    def complete_setup(self, provider):
+        """Complete initial setup: save LLM provider choice and start model loading."""
+        self.config.set("llm_provider", provider)
+        self.config.set("setup_complete", True)
+        # Start loading the transcriber model
+        if not self.transcriber.is_ready and not self.transcriber.is_loading:
+            self.transcriber.load_model_async()
+        return {"ok": True}
+
     def wait_for_model(self):
         """Non-blocking check if model is ready."""
         if self.transcriber.is_ready:

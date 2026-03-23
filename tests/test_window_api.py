@@ -92,6 +92,11 @@ class TestApiGetConfig:
         assert cfg["auto_paste"] is True
         assert cfg["llm_provider"] == "local"
 
+    def test_returns_all_keys_including_setup(self, api):
+        # Ensure is_setup_complete is available as a method
+        assert hasattr(api, 'is_setup_complete')
+        assert hasattr(api, 'complete_setup')
+
 
 class TestApiSetConfig:
     def test_set_config_persists(self, api):
@@ -105,6 +110,42 @@ class TestApiSetConfig:
     def test_set_openrouter_key(self, api):
         api.set_config("openrouter_api_key", "sk-test")
         assert api.config.get("openrouter_api_key") == "sk-test"
+
+
+class TestApiSetup:
+    def test_is_setup_complete_default_false(self, api):
+        assert api.is_setup_complete() is False
+
+    def test_is_setup_complete_after_setup(self, api):
+        api.config.set("setup_complete", True)
+        assert api.is_setup_complete() is True
+
+    def test_complete_setup_local(self, api):
+        api.transcriber.is_ready = False
+        api.transcriber.is_loading = False
+        result = api.complete_setup("local")
+        assert result == {"ok": True}
+        assert api.config.get("llm_provider") == "local"
+        assert api.config.get("setup_complete") is True
+        api.transcriber.load_model_async.assert_called_once()
+
+    def test_complete_setup_openrouter(self, api):
+        api.transcriber.is_ready = False
+        api.transcriber.is_loading = False
+        result = api.complete_setup("openrouter")
+        assert result == {"ok": True}
+        assert api.config.get("llm_provider") == "openrouter"
+        assert api.config.get("setup_complete") is True
+
+    def test_complete_setup_does_not_reload_if_ready(self, api):
+        api.transcriber.is_ready = True
+        api.complete_setup("local")
+        api.transcriber.load_model_async.assert_not_called()
+
+    def test_complete_setup_does_not_reload_if_loading(self, api):
+        api.transcriber.is_loading = True
+        api.complete_setup("local")
+        api.transcriber.load_model_async.assert_not_called()
 
 
 class TestApiWaitForModel:

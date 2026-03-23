@@ -7,8 +7,49 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Setup Screen (first launch only) -->
+  <div id="setup-screen" class="setup-screen hidden">
+    <div class="setup-content">
+      <div class="download-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </svg>
+      </div>
+      <h2 class="setup-title">PushkaVoice</h2>
+      <p class="setup-subtitle">Choose how to clean up transcriptions</p>
+
+      <div class="setup-options">
+        <button id="setup-local" class="setup-option">
+          <div class="setup-option-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <rect x="2" y="3" width="20" height="14" rx="2"/>
+              <path d="M8 21h8M12 17v4"/>
+            </svg>
+          </div>
+          <div class="setup-option-text">
+            <strong>Local (Ollama)</strong>
+            <span>LLM runs on your machine. Requires Ollama installed.</span>
+          </div>
+        </button>
+        <button id="setup-cloud" class="setup-option">
+          <div class="setup-option-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z"/>
+            </svg>
+          </div>
+          <div class="setup-option-text">
+            <strong>Cloud (OpenRouter)</strong>
+            <span>Uses cloud API. No local LLM needed.</span>
+          </div>
+        </button>
+      </div>
+      <p class="setup-note">Speech recognition model (~500 MB) will be downloaded in both cases.</p>
+    </div>
+  </div>
+
   <!-- Download/Loading Overlay -->
-  <div id="download-screen" class="download-screen">
+  <div id="download-screen" class="download-screen hidden">
     <div class="download-content">
       <div class="download-icon">
         <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -22,6 +63,7 @@
         <div id="progress-bar" class="progress-bar"></div>
       </div>
       <p id="download-detail" class="download-detail"></p>
+      <p id="download-speed" class="download-speed"></p>
     </div>
   </div>
 

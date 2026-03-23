@@ -228,6 +228,43 @@ class TestE2EConfigPersistence:
         assert c2.get("openrouter_model") == "anthropic/claude-3-haiku"
 
 
+class TestE2ESetupFlow:
+    """Test the initial setup flow."""
+
+    def test_setup_not_complete_by_default(self, setup_e2e):
+        api, _, _ = setup_e2e
+        assert api.is_setup_complete() is False
+
+    def test_complete_setup_with_local(self, setup_e2e):
+        api, mock_transcriber, _ = setup_e2e
+        mock_transcriber.is_ready = False
+        mock_transcriber.is_loading = False
+        result = api.complete_setup("local")
+        assert result == {"ok": True}
+        assert api.config.get("llm_provider") == "local"
+        assert api.config.get("setup_complete") is True
+        mock_transcriber.load_model_async.assert_called_once()
+
+    def test_complete_setup_with_cloud(self, setup_e2e):
+        api, mock_transcriber, _ = setup_e2e
+        mock_transcriber.is_ready = False
+        mock_transcriber.is_loading = False
+        result = api.complete_setup("openrouter")
+        assert result == {"ok": True}
+        assert api.config.get("llm_provider") == "openrouter"
+        assert api.config.get("setup_complete") is True
+        mock_transcriber.load_model_async.assert_called_once()
+
+    def test_setup_persists_across_instances(self, make_config):
+        c1 = make_config()
+        c1.set("setup_complete", True)
+        c1.set("llm_provider", "openrouter")
+
+        c2 = make_config()
+        assert c2.get("setup_complete") is True
+        assert c2.get("llm_provider") == "openrouter"
+
+
 class TestE2EProviderSwitching:
     """Test switching between providers mid-session."""
 

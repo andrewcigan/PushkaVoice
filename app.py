@@ -49,10 +49,11 @@ def main():
     config = Config()
     config.save()
 
-    # Create transcriber and start loading model
+    # Create transcriber (model loading deferred until setup is complete)
     from core.transcriber import Transcriber
     transcriber = Transcriber()
-    transcriber.load_model_async()
+    if config.get("setup_complete", False):
+        transcriber.load_model_async()
 
     # Create API for pywebview
     from ui.window import Api
@@ -111,7 +112,7 @@ def main():
     )
 
     logger.info("Starting GigaAM Dictation app...")
-    webview.start(debug=True)
+    webview.start(debug=False)
 
 
 if __name__ == "__main__":

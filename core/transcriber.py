@@ -25,6 +25,12 @@ class Transcriber:
         self._status = "Waiting..."
         self._download_progress = 0  # 0-100
         self._is_downloading = False
+        self._download_speed = 0.0  # bytes/sec
+        self._download_eta = 0  # seconds remaining
+        self._downloaded_mb = 0.0
+        self._total_mb = 0.0
+        self._download_start_time = 0.0
+        self._speed_samples = []  # list of (time, bytes) for rolling speed
 
     def _check_model_cached(self) -> bool:
         """Check if model files already exist in cache."""
@@ -36,8 +42,11 @@ class Transcriber:
         self._is_downloading = True
         self._status = "Downloading GigaAM model..."
         self._download_progress = 0
+        self._download_start_time = time.time()
+        self._speed_samples = []
 
         total_expected = sum(MODEL_EXPECTED_SIZES.values())
+        self._total_mb = total_expected / (1024 * 1024)
 
         while self._is_downloading and self._loading:
             total_downloaded = 0
@@ -46,11 +55,41 @@ class Transcriber:
                 if fpath.exists():
                     total_downloaded += min(fpath.stat().st_size, expected)
 
+            now = time.time()
+            self._downloaded_mb = total_downloaded / (1024 * 1024)
+
             if total_expected > 0:
                 self._download_progress = min(99, int(total_downloaded * 100 / total_expected))
-                mb_done = total_downloaded / (1024 * 1024)
-                mb_total = total_expected / (1024 * 1024)
-                self._status = f"Downloading model... {mb_done:.0f} / {mb_total:.0f} MB"
+
+            # Track speed with rolling window (last 10 samples = 5 seconds)
+            self._speed_samples.append((now, total_downloaded))
+            if len(self._speed_samples) > 10:
+                self._speed_samples = self._speed_samples[-10:]
+
+            # Calculate speed from rolling window
+            if len(self._speed_samples) >= 2:
+                t0, b0 = self._speed_samples[0]
+                t1, b1 = self._speed_samples[-1]
+                dt = t1 - t0
+                if dt > 0:
+                    self._download_speed = (b1 - b0) / dt
+                    remaining = total_expected - total_downloaded
+                    if self._download_speed > 0:
+                        self._download_eta = int(remaining / self._download_speed)
+                    else:
+                        self._download_eta = 0
+                else:
+                    self._download_speed = 0.0
+                    self._download_eta = 0
+            else:
+                self._download_speed = 0.0
+                self._download_eta = 0
+
+            # Build status message with real data
+            speed_mbs = self._download_speed / (1024 * 1024)
+            self._status = (
+                f"Downloading model... {self._downloaded_mb:.0f} / {self._total_mb:.0f} MB"
+            )
 
             time.sleep(0.5)
 
@@ -106,12 +145,17 @@ class Transcriber:
 
     def get_status(self) -> dict:
         """Return current loading status for the UI."""
+        speed_mbs = self._download_speed / (1024 * 1024) if self._download_speed else 0.0
         return {
             "message": self._status,
             "progress": self._download_progress,
             "downloading": self._is_downloading,
             "loading": self._loading,
             "ready": self.is_ready,
+            "speed_mbs": round(speed_mbs, 1),
+            "eta_seconds": self._download_eta,
+            "downloaded_mb": round(self._downloaded_mb, 1),
+            "total_mb": round(self._total_mb, 1),
         }
 
     def wait_until_ready(self, timeout=None) -> bool:
