@@ -1,0 +1,10 @@
+{
+  "hotkey": "<cmd>+<shift>+d",
+  "microphone_device_id": null,
+  "indicator_mode": "menubar",
+  "save_dictations": true,
+  "dictations_folder": "dictations",
+  "auto_paste": true,
+  "sample_rate": 16000,
+  "llm_cleanup": true
+}

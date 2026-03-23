@@ -1,0 +1,14 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+onnx/
+*.wav
+*.mp3
+*.ogg
+*.m4a
+*.flac
+.DS_Store
+dictation.log
+dictations/
+config/settings.json

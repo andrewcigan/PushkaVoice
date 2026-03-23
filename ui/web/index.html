@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GigaAM Dictation</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <header class="header">
+      <h1>GigaAM Dictation</h1>
+      <span id="status-badge" class="badge badge-loading">Loading model...</span>
+    </header>
+
+    <!-- Record Section -->
+    <section class="record-section">
+      <button id="record-btn" class="record-btn" disabled>
+        <div class="record-btn-inner">
+          <svg id="mic-icon" class="mic-icon" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+            <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+          </svg>
+          <svg id="stop-icon" class="stop-icon hidden" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="6" width="12" height="12" rx="2"/>
+          </svg>
+        </div>
+      </button>
+      <div id="timer" class="timer">00:00</div>
+      <div id="record-label" class="record-label">Press to record</div>
+    </section>
+
+    <!-- Settings Section -->
+    <section class="settings-section">
+      <div class="setting-row">
+        <label>Microphone</label>
+        <select id="mic-select" class="select"></select>
+      </div>
+      <div class="setting-row">
+        <label>Hotkey</label>
+        <div class="hotkey-display">
+          <span id="hotkey-text">Cmd+Shift+D</span>
+          <button id="hotkey-edit-btn" class="btn-small">Edit</button>
+        </div>
+      </div>
+      <div class="setting-row">
+        <label>Auto-paste</label>
+        <label class="toggle">
+          <input type="checkbox" id="autopaste-toggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Hotkey Edit Modal -->
+    <div id="hotkey-modal" class="modal hidden">
+      <div class="modal-content">
+        <h3>Set Hotkey</h3>
+        <p>Choose a hotkey combination:</p>
+        <select id="hotkey-preset" class="select">
+          <option value="<cmd>+<shift>+d">Cmd+Shift+D</option>
+          <option value="<cmd>+<shift>+<space>">Cmd+Shift+Space</option>
+          <option value="<ctrl>+<shift>+d">Ctrl+Shift+D</option>
+          <option value="<cmd>+<alt>+d">Cmd+Alt+D</option>
+          <option value="<f5>">F5</option>
+          <option value="<f8>">F8</option>
+        </select>
+        <div class="modal-buttons">
+          <button id="hotkey-save" class="btn btn-primary">Save</button>
+          <button id="hotkey-cancel" class="btn">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Divider -->
+    <div class="divider"></div>
+
+    <!-- History Section -->
+    <section class="history-section">
+      <div class="history-header">
+        <h2>Recent</h2>
+        <button id="open-folder-btn" class="btn-small">Open Folder</button>
+      </div>
+      <div id="history-list" class="history-list">
+        <div class="history-empty">No dictations yet</div>
+      </div>
+    </section>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
