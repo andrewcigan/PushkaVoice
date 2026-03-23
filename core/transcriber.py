@@ -2,6 +2,7 @@ import os
 import threading
 import logging
 import time
+import zipfile
 from pathlib import Path
 
 from utils.audio_utils import get_wav_duration
@@ -26,6 +27,9 @@ CACHE_DIRS = [
 MODEL_PATTERNS = ["*rnnt*", "*gigaam*", "*.ckpt", "*.bin", "*.safetensors"]
 MODEL_EXPECTED_TOTAL = 500_000_000  # ~500 MB
 
+# Minimum valid model file size (50 MB)
+MODEL_MIN_SIZE = 50_000_000
+
 
 def _scan_download_bytes() -> int:
     """Scan all known cache directories for model-related files and return total bytes."""
@@ -49,18 +53,46 @@ def _scan_download_bytes() -> int:
     return total
 
 
+def _is_valid_checkpoint(path: Path) -> bool:
+    """Check if a .ckpt file is a valid PyTorch checkpoint (zip archive)."""
+    try:
+        if not path.is_file():
+            return False
+        if path.stat().st_size < MODEL_MIN_SIZE:
+            return False
+        # PyTorch checkpoints are zip files — verify the archive is readable
+        with zipfile.ZipFile(path, 'r') as zf:
+            zf.testzip()
+        return True
+    except (zipfile.BadZipFile, OSError, Exception):
+        return False
+
+
 def _find_cached_model() -> bool:
-    """Check if any model checkpoint file exists in the gigaam cache directory."""
+    """Check if a valid model checkpoint exists in the gigaam cache directory."""
     if not GIGAAM_CACHE_DIR.exists():
         return False
-    # Look for any .ckpt file that looks like a model (> 50 MB)
     try:
         for f in GIGAAM_CACHE_DIR.glob("*.ckpt"):
-            if f.is_file() and f.stat().st_size > 50_000_000:
+            if _is_valid_checkpoint(f):
                 return True
     except OSError:
         pass
     return False
+
+
+def _cleanup_corrupted_cache():
+    """Remove corrupted .ckpt files from the gigaam cache directory."""
+    if not GIGAAM_CACHE_DIR.exists():
+        return
+    try:
+        for f in GIGAAM_CACHE_DIR.glob("*.ckpt"):
+            if f.is_file() and not _is_valid_checkpoint(f):
+                size_mb = f.stat().st_size / (1024 * 1024)
+                logger.warning(f"Removing corrupted cache file: {f} ({size_mb:.1f} MB)")
+                f.unlink()
+    except OSError as e:
+        logger.warning(f"Failed to clean up cache: {e}")
 
 
 class Transcriber:
@@ -136,6 +168,9 @@ class Transcriber:
         self._error = None
         self._load_start_time = time.time()
 
+        # Clean up any corrupted cache files from previous failed downloads
+        _cleanup_corrupted_cache()
+
         monitor_thread = None
         model_cached = _find_cached_model()
         if not model_cached:
@@ -155,10 +190,19 @@ class Transcriber:
             self._status = "Ready"
             self._error = None
             logger.info("Model loaded successfully")
+        except RuntimeError as e:
+            if "PytorchStreamReader" in str(e) or "zip archive" in str(e):
+                logger.warning("Corrupted model file detected, cleaning cache and retrying...")
+                _cleanup_corrupted_cache()
+                self._error = "Corrupted model cache removed. Please retry to re-download."
+                self._status = f"Error: {self._error}"
+            else:
+                self._error = str(e)
+                self._status = f"Error: {self._error}"
+            logger.error(f"Failed to load model: {e}", exc_info=True)
         except Exception as e:
-            error_msg = str(e)
-            self._status = f"Error: {error_msg}"
-            self._error = error_msg
+            self._error = str(e)
+            self._status = f"Error: {self._error}"
             logger.error(f"Failed to load model: {e}", exc_info=True)
         finally:
             self._is_downloading = False

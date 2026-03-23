@@ -1,9 +1,17 @@
 """Tests for core/transcriber.py."""
 import sys
 import threading
+import zipfile
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+def _make_valid_ckpt(path, size_mb=60):
+    """Create a fake but valid .ckpt file (a valid zip archive of the right size)."""
+    with zipfile.ZipFile(path, 'w') as zf:
+        # Write enough padding data to reach desired size
+        zf.writestr("data.bin", b"x" * (size_mb * 1_000_000))
 
 
 @pytest.fixture(autouse=True)
@@ -213,16 +221,113 @@ class TestFindCachedModel:
         from core.transcriber import _find_cached_model
         assert _find_cached_model() is False
 
-    def test_large_ckpt_file_found(self, monkeypatch, tmp_path):
+    def test_corrupted_large_ckpt_rejected(self, monkeypatch, tmp_path):
+        """A large but corrupted (non-zip) .ckpt file should NOT be treated as cached."""
         from core import transcriber as t_mod
         cache = tmp_path / "gigaam"
         cache.mkdir()
-        # Create file > 50MB (we'll fake it with a sparse check)
         f = cache / "rnnt.ckpt"
-        f.write_bytes(b"x" * 60_000_000)
+        f.write_bytes(b"x" * 60_000_000)  # large but not a valid zip
+        monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', cache)
+        from core.transcriber import _find_cached_model
+        assert _find_cached_model() is False
+
+    def test_valid_large_ckpt_found(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        cache = tmp_path / "gigaam"
+        cache.mkdir()
+        _make_valid_ckpt(cache / "rnnt.ckpt", size_mb=60)
         monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', cache)
         from core.transcriber import _find_cached_model
         assert _find_cached_model() is True
+
+
+class TestIsValidCheckpoint:
+    def test_nonexistent_file(self, tmp_path):
+        from core.transcriber import _is_valid_checkpoint
+        assert _is_valid_checkpoint(tmp_path / "nope.ckpt") is False
+
+    def test_too_small_file(self, tmp_path):
+        from core.transcriber import _is_valid_checkpoint
+        f = tmp_path / "small.ckpt"
+        f.write_bytes(b"x" * 100)
+        assert _is_valid_checkpoint(f) is False
+
+    def test_large_but_corrupted(self, tmp_path):
+        from core.transcriber import _is_valid_checkpoint
+        f = tmp_path / "corrupt.ckpt"
+        f.write_bytes(b"x" * 60_000_000)
+        assert _is_valid_checkpoint(f) is False
+
+    def test_valid_zip_checkpoint(self, tmp_path):
+        from core.transcriber import _is_valid_checkpoint
+        f = tmp_path / "valid.ckpt"
+        _make_valid_ckpt(f, size_mb=60)
+        assert _is_valid_checkpoint(f) is True
+
+    def test_truncated_zip(self, tmp_path):
+        """A partially downloaded zip (truncated) should be invalid."""
+        from core.transcriber import _is_valid_checkpoint
+        f = tmp_path / "partial.ckpt"
+        _make_valid_ckpt(f, size_mb=60)
+        # Truncate the file to simulate interrupted download
+        data = f.read_bytes()
+        f.write_bytes(data[:len(data) // 2])
+        assert _is_valid_checkpoint(f) is False
+
+
+class TestCleanupCorruptedCache:
+    def test_removes_corrupted_files(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        cache = tmp_path / "gigaam"
+        cache.mkdir()
+        corrupt = cache / "rnnt.ckpt"
+        corrupt.write_bytes(b"x" * 60_000_000)  # corrupted (not a zip)
+        monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', cache)
+        from core.transcriber import _cleanup_corrupted_cache
+        _cleanup_corrupted_cache()
+        assert not corrupt.exists()
+
+    def test_keeps_valid_files(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        cache = tmp_path / "gigaam"
+        cache.mkdir()
+        valid = cache / "rnnt.ckpt"
+        _make_valid_ckpt(valid, size_mb=60)
+        monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', cache)
+        from core.transcriber import _cleanup_corrupted_cache
+        _cleanup_corrupted_cache()
+        assert valid.exists()
+
+    def test_no_crash_on_missing_dir(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', tmp_path / "nonexistent")
+        from core.transcriber import _cleanup_corrupted_cache
+        _cleanup_corrupted_cache()  # should not raise
+
+
+class TestCorruptedModelAutoRecovery:
+    def test_pytorch_stream_error_cleans_cache(self, mock_gigaam, monkeypatch, tmp_path):
+        """When PyTorch can't read a corrupted checkpoint, cache should be cleaned."""
+        from core import transcriber as t_mod
+        cache = tmp_path / "gigaam"
+        cache.mkdir()
+        corrupt = cache / "rnnt.ckpt"
+        corrupt.write_bytes(b"x" * 60_000_000)
+        monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', cache)
+
+        mock_gigaam.load_model.side_effect = RuntimeError(
+            "PytorchStreamReader failed reading zip archive: failed finding central directory"
+        )
+
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+
+        assert t.has_error is True
+        assert "Corrupted" in t._error or "corrupt" in t._error.lower()
+        # Corrupted file should have been removed
+        assert not corrupt.exists()
 
 
 class TestScanDownloadBytes:
