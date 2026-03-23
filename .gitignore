@@ -12,3 +12,6 @@ onnx/
 dictation.log
 dictations/
 config/settings.json
+.coverage
+.pytest_cache/
+htmlcov/
