@@ -115,6 +115,14 @@ class TestTranscriberLoadModel:
         assert t.is_ready
         assert not t.is_loading
 
+    def test_load_model_uses_correct_name(self, mock_gigaam):
+        mock_gigaam.load_model.return_value = MagicMock()
+        from core.transcriber import Transcriber, MODEL_NAME
+        t = Transcriber()
+        t.load_model()
+        mock_gigaam.load_model.assert_called_once_with(MODEL_NAME)
+        assert MODEL_NAME == "rnnt"
+
     def test_load_model_does_not_load_twice(self, mock_gigaam):
         mock_gigaam.load_model.return_value = MagicMock()
         from core.transcriber import Transcriber
@@ -130,6 +138,8 @@ class TestTranscriberLoadModel:
         t.load_model()
         assert not t.is_ready
         assert not t.is_loading
+        assert t.has_error is True
+        assert "model not found" in t._error
 
 
 class TestTranscriberRetryLoad:
@@ -179,6 +189,42 @@ class TestTranscriberWaitUntilReady:
         assert result is False
 
 
+class TestFindCachedModel:
+    def test_no_cache_dir(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', tmp_path / "nonexistent")
+        from core.transcriber import _find_cached_model
+        assert _find_cached_model() is False
+
+    def test_empty_cache_dir(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        cache = tmp_path / "gigaam"
+        cache.mkdir()
+        monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', cache)
+        from core.transcriber import _find_cached_model
+        assert _find_cached_model() is False
+
+    def test_small_ckpt_file_ignored(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        cache = tmp_path / "gigaam"
+        cache.mkdir()
+        (cache / "rnnt.ckpt").write_bytes(b"x" * 1000)  # too small
+        monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', cache)
+        from core.transcriber import _find_cached_model
+        assert _find_cached_model() is False
+
+    def test_large_ckpt_file_found(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        cache = tmp_path / "gigaam"
+        cache.mkdir()
+        # Create file > 50MB (we'll fake it with a sparse check)
+        f = cache / "rnnt.ckpt"
+        f.write_bytes(b"x" * 60_000_000)
+        monkeypatch.setattr(t_mod, 'GIGAAM_CACHE_DIR', cache)
+        from core.transcriber import _find_cached_model
+        assert _find_cached_model() is True
+
+
 class TestScanDownloadBytes:
     def test_scan_returns_zero_with_no_cache(self, monkeypatch, tmp_path):
         from core import transcriber as t_mod
@@ -191,7 +237,7 @@ class TestScanDownloadBytes:
         cache = tmp_path / "cache"
         cache.mkdir()
         # Create a fake .ckpt file
-        (cache / "v3_e2e_rnnt.ckpt").write_bytes(b"x" * 1000)
+        (cache / "rnnt.ckpt").write_bytes(b"x" * 1000)
         monkeypatch.setattr(t_mod, 'CACHE_DIRS', [cache])
         from core.transcriber import _scan_download_bytes
         assert _scan_download_bytes() == 1000

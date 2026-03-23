@@ -10,16 +10,20 @@ logger = logging.getLogger(__name__)
 
 LONGFORM_THRESHOLD = 25.0  # seconds
 
+# Model name used by gigaam library
+MODEL_NAME = "rnnt"
+
 # All possible cache locations where gigaam/torch/huggingface may download
+GIGAAM_CACHE_DIR = Path.home() / ".cache" / "gigaam"
 CACHE_DIRS = [
-    Path.home() / ".cache" / "gigaam",
+    GIGAAM_CACHE_DIR,
     Path.home() / ".cache" / "torch" / "hub" / "checkpoints",
     Path.home() / ".cache" / "huggingface" / "hub",
     Path.home() / ".cache" / "huggingface",
 ]
 
 # Known model file patterns and expected total size (~500 MB)
-MODEL_PATTERNS = ["*rnnt*", "*gigaam*", "*e2e*", "*.ckpt", "*.bin", "*.safetensors"]
+MODEL_PATTERNS = ["*rnnt*", "*gigaam*", "*.ckpt", "*.bin", "*.safetensors"]
 MODEL_EXPECTED_TOTAL = 500_000_000  # ~500 MB
 
 
@@ -45,6 +49,20 @@ def _scan_download_bytes() -> int:
     return total
 
 
+def _find_cached_model() -> bool:
+    """Check if any model checkpoint file exists in the gigaam cache directory."""
+    if not GIGAAM_CACHE_DIR.exists():
+        return False
+    # Look for any .ckpt file that looks like a model (> 50 MB)
+    try:
+        for f in GIGAAM_CACHE_DIR.glob("*.ckpt"):
+            if f.is_file() and f.stat().st_size > 50_000_000:
+                return True
+    except OSError:
+        pass
+    return False
+
+
 class Transcriber:
     def __init__(self):
         self._model = None
@@ -62,14 +80,6 @@ class Transcriber:
         self._load_start_time = 0.0
         self._elapsed_seconds = 0
         self._speed_samples = []  # list of (time, bytes) for rolling speed
-
-    def _check_model_cached(self) -> bool:
-        """Check if model files already exist in cache (fully downloaded)."""
-        ckpt = Path.home() / ".cache" / "gigaam" / "v3_e2e_rnnt.ckpt"
-        if ckpt.exists():
-            size = ckpt.stat().st_size
-            return size > MODEL_EXPECTED_TOTAL * 0.9
-        return False
 
     def _monitor_download(self):
         """Monitor download progress by scanning cache directories for model files."""
@@ -127,7 +137,8 @@ class Transcriber:
         self._load_start_time = time.time()
 
         monitor_thread = None
-        if not self._check_model_cached():
+        model_cached = _find_cached_model()
+        if not model_cached:
             self._status = "Downloading model..."
             self._is_downloading = True
             monitor_thread = threading.Thread(target=self._monitor_download, daemon=True)
@@ -137,10 +148,10 @@ class Transcriber:
 
         try:
             import gigaam
-            logger.info("Loading GigaAM v3_e2e_rnnt model...")
-            if self._check_model_cached():
+            logger.info(f"Loading GigaAM '{MODEL_NAME}' model...")
+            if model_cached:
                 self._status = "Loading model into memory..."
-            self._model = gigaam.load_model("v3_e2e_rnnt")
+            self._model = gigaam.load_model(MODEL_NAME)
             self._status = "Ready"
             self._error = None
             logger.info("Model loaded successfully")
