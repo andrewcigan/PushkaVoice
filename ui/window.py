@@ -1,6 +1,7 @@
 import logging
 import os
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime
@@ -256,3 +257,33 @@ class Api:
         folder = self.config.dictations_folder
         subprocess.run(["open", folder], check=False)
         return {"ok": True}
+
+    def get_log_path(self):
+        """Return the path to the log file."""
+        if getattr(sys, 'frozen', False):
+            log_dir = Path.home() / ".pushkavoice"
+        else:
+            log_dir = Path(__file__).parent.parent
+        return str(log_dir / "dictation.log")
+
+    def get_logs(self, max_lines=200):
+        """Return last N lines of the log file."""
+        log_path = self.get_log_path()
+        try:
+            if not os.path.exists(log_path):
+                return {"lines": [], "path": log_path}
+            with open(log_path, "r", encoding="utf-8", errors="replace") as f:
+                all_lines = f.readlines()
+            return {
+                "lines": all_lines[-max_lines:],
+                "path": log_path,
+            }
+        except Exception as e:
+            return {"lines": [f"Error reading logs: {e}"], "path": log_path}
+
+    def open_log_file(self):
+        """Open log file in Finder / default text editor."""
+        log_path = self.get_log_path()
+        if os.path.exists(log_path):
+            subprocess.run(["open", log_path], check=False)
+        return {"ok": True, "path": log_path}

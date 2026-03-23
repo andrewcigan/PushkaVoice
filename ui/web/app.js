@@ -32,6 +32,13 @@ const downloadStatus = document.getElementById('download-status');
 const downloadDetail = document.getElementById('download-detail');
 const downloadSpeed = document.getElementById('download-speed');
 const progressBar = document.getElementById('progress-bar');
+const viewLogsBtn = document.getElementById('view-logs-btn');
+const logsModal = document.getElementById('logs-modal');
+const logsContent = document.getElementById('logs-content');
+const logsPath = document.getElementById('logs-path');
+const logsOpenFile = document.getElementById('logs-open-file');
+const logsRefresh = document.getElementById('logs-refresh');
+const logsClose = document.getElementById('logs-close');
 
 // Format hotkey for display
 function formatHotkey(raw) {
@@ -52,6 +59,15 @@ function formatEta(seconds) {
   const m = Math.floor(seconds / 60);
   const s = seconds % 60;
   return `~${m}m ${s}s remaining`;
+}
+
+// Format elapsed time
+function formatElapsed(seconds) {
+  if (seconds <= 0) return '0s';
+  if (seconds < 60) return `${seconds}s`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m}m ${s}s`;
 }
 
 // Timer
@@ -103,10 +119,10 @@ function setState(newState) {
       recordBtn.disabled = true;
       recordLabel.textContent = 'Loading model...';
       downloadScreen.classList.remove('hidden');
-      downloadStatus.textContent = 'Loading model...';
+      downloadStatus.textContent = 'Loading model into memory...';
       progressBar.classList.add('indeterminate');
       progressBar.style.width = '30%';
-      downloadDetail.textContent = '';
+      downloadDetail.textContent = 'This may take a minute on first launch';
       downloadSpeed.textContent = '';
       startStatusPolling();
       break;
@@ -243,6 +259,36 @@ openFolderBtn.addEventListener('click', async () => {
   await pywebview.api.open_dictations_folder();
 });
 
+// ── Logs ──
+viewLogsBtn.addEventListener('click', async () => {
+  logsModal.classList.remove('hidden');
+  await refreshLogs();
+});
+
+logsClose.addEventListener('click', () => {
+  logsModal.classList.add('hidden');
+});
+
+logsRefresh.addEventListener('click', async () => {
+  await refreshLogs();
+});
+
+logsOpenFile.addEventListener('click', async () => {
+  await pywebview.api.open_log_file();
+});
+
+async function refreshLogs() {
+  try {
+    const result = await pywebview.api.get_logs(200);
+    logsContent.textContent = result.lines.join('');
+    logsPath.textContent = result.path;
+    // Auto-scroll to bottom
+    logsContent.scrollTop = logsContent.scrollHeight;
+  } catch (e) {
+    logsContent.textContent = 'Failed to load logs: ' + e;
+  }
+}
+
 // History
 async function loadHistory() {
   const history = await pywebview.api.get_history();
@@ -339,16 +385,28 @@ function startStatusPolling() {
     if (!window.pywebview || !window.pywebview.api) return;
     try {
       const status = await pywebview.api.get_loading_status();
+
+      if (status.ready) {
+        downloadStatus.textContent = 'Ready!';
+        progressBar.classList.remove('indeterminate');
+        progressBar.style.width = '100%';
+        downloadDetail.textContent = '';
+        downloadSpeed.textContent = '';
+        return;
+      }
+
+      // Always show elapsed time
+      const elapsed = formatElapsed(status.elapsed_seconds);
+
       if (status.downloading) {
         downloadStatus.textContent = status.message;
         progressBar.classList.remove('indeterminate');
         progressBar.style.width = status.progress + '%';
 
         // Show real download details
-        const detail = `${status.downloaded_mb} / ${status.total_mb} MB  (${status.progress}%)`;
-        downloadDetail.textContent = detail;
+        downloadDetail.textContent = `${status.downloaded_mb} / ${status.total_mb} MB  (${status.progress}%)`;
 
-        // Show speed and ETA
+        // Show speed, ETA and elapsed
         const parts = [];
         if (status.speed_mbs > 0) {
           parts.push(`${status.speed_mbs} MB/s`);
@@ -356,19 +414,14 @@ function startStatusPolling() {
         if (status.eta_seconds > 0) {
           parts.push(formatEta(status.eta_seconds));
         }
+        parts.push(`Elapsed: ${elapsed}`);
         downloadSpeed.textContent = parts.join('  \u2022  ');
       } else if (status.loading) {
-        downloadStatus.textContent = 'Loading model...';
+        downloadStatus.textContent = status.message || 'Loading model into memory...';
         progressBar.classList.add('indeterminate');
         progressBar.style.width = '30%';
-        downloadDetail.textContent = 'Initializing speech recognition';
-        downloadSpeed.textContent = '';
-      } else if (status.ready) {
-        downloadStatus.textContent = 'Ready!';
-        progressBar.classList.remove('indeterminate');
-        progressBar.style.width = '100%';
-        downloadDetail.textContent = '';
-        downloadSpeed.textContent = '';
+        downloadDetail.textContent = 'This may take a minute on first launch';
+        downloadSpeed.textContent = `Elapsed: ${elapsed}`;
       }
     } catch (e) {
       // ignore

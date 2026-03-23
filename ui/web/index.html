@@ -64,6 +64,23 @@
       </div>
       <p id="download-detail" class="download-detail"></p>
       <p id="download-speed" class="download-speed"></p>
+      <button id="view-logs-btn" class="btn-logs">View Logs</button>
+    </div>
+  </div>
+
+  <!-- Logs Modal -->
+  <div id="logs-modal" class="modal hidden">
+    <div class="modal-content modal-logs">
+      <div class="logs-header">
+        <h3>Application Logs</h3>
+        <div class="logs-actions">
+          <button id="logs-open-file" class="btn-small">Open File</button>
+          <button id="logs-refresh" class="btn-small">Refresh</button>
+          <button id="logs-close" class="btn-small">Close</button>
+        </div>
+      </div>
+      <pre id="logs-content" class="logs-content"></pre>
+      <p id="logs-path" class="logs-path"></p>
     </div>
   </div>
 

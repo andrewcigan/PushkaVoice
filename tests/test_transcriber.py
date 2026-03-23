@@ -29,8 +29,9 @@ class TestTranscriberInit:
         assert t._download_speed == 0.0
         assert t._download_eta == 0
         assert t._downloaded_mb == 0.0
-        assert t._total_mb == 0.0
+        assert t._total_mb > 0  # pre-set to expected model size
         assert t._speed_samples == []
+        assert t._elapsed_seconds == 0
 
 
 class TestTranscriberGetStatus:
@@ -46,7 +47,8 @@ class TestTranscriberGetStatus:
         assert status["speed_mbs"] == 0.0
         assert status["eta_seconds"] == 0
         assert status["downloaded_mb"] == 0.0
-        assert status["total_mb"] == 0.0
+        assert status["total_mb"] > 0  # has expected total
+        assert "elapsed_seconds" in status
 
     def test_status_after_load(self, mock_gigaam):
         mock_gigaam.load_model.return_value = MagicMock()
@@ -131,6 +133,33 @@ class TestTranscriberWaitUntilReady:
         # Never load model, so wait should time out
         result = t.wait_until_ready(timeout=0.1)
         assert result is False
+
+
+class TestScanDownloadBytes:
+    def test_scan_returns_zero_with_no_cache(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        monkeypatch.setattr(t_mod, 'CACHE_DIRS', [tmp_path / "nonexistent"])
+        from core.transcriber import _scan_download_bytes
+        assert _scan_download_bytes() == 0
+
+    def test_scan_finds_model_files(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        # Create a fake .ckpt file
+        (cache / "v3_e2e_rnnt.ckpt").write_bytes(b"x" * 1000)
+        monkeypatch.setattr(t_mod, 'CACHE_DIRS', [cache])
+        from core.transcriber import _scan_download_bytes
+        assert _scan_download_bytes() == 1000
+
+    def test_scan_finds_incomplete_files(self, monkeypatch, tmp_path):
+        from core import transcriber as t_mod
+        cache = tmp_path / "cache"
+        cache.mkdir()
+        (cache / "model.incomplete").write_bytes(b"x" * 500)
+        monkeypatch.setattr(t_mod, 'CACHE_DIRS', [cache])
+        from core.transcriber import _scan_download_bytes
+        assert _scan_download_bytes() == 500
 
 
 class TestTranscriberDownloadMonitor:

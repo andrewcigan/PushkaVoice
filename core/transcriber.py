@@ -9,12 +9,40 @@ from utils.audio_utils import get_wav_duration
 logger = logging.getLogger(__name__)
 
 LONGFORM_THRESHOLD = 25.0  # seconds
-GIGAAM_CACHE_DIR = Path.home() / ".cache" / "gigaam"
-# Approximate model file sizes for progress tracking (bytes)
-MODEL_EXPECTED_SIZES = {
-    "v3_e2e_rnnt.ckpt": 500_000_000,  # ~500 MB
-    "v3_e2e_rnnt_tokenizer.model": 1_000_000,  # ~1 MB
-}
+
+# All possible cache locations where gigaam/torch/huggingface may download
+CACHE_DIRS = [
+    Path.home() / ".cache" / "gigaam",
+    Path.home() / ".cache" / "torch" / "hub" / "checkpoints",
+    Path.home() / ".cache" / "huggingface" / "hub",
+    Path.home() / ".cache" / "huggingface",
+]
+
+# Known model file patterns and expected total size (~500 MB)
+MODEL_PATTERNS = ["*rnnt*", "*gigaam*", "*e2e*", "*.ckpt", "*.bin", "*.safetensors"]
+MODEL_EXPECTED_TOTAL = 500_000_000  # ~500 MB
+
+
+def _scan_download_bytes() -> int:
+    """Scan all known cache directories for model-related files and return total bytes."""
+    seen = set()
+    total = 0
+    for cache_dir in CACHE_DIRS:
+        if not cache_dir.exists():
+            continue
+        try:
+            all_patterns = MODEL_PATTERNS + ["*.incomplete"]
+            for pattern in all_patterns:
+                for f in cache_dir.rglob(pattern):
+                    if f.is_file() and f not in seen:
+                        seen.add(f)
+                        try:
+                            total += f.stat().st_size
+                        except OSError:
+                            pass
+        except OSError:
+            pass
+    return total
 
 
 class Transcriber:
@@ -28,41 +56,45 @@ class Transcriber:
         self._download_speed = 0.0  # bytes/sec
         self._download_eta = 0  # seconds remaining
         self._downloaded_mb = 0.0
-        self._total_mb = 0.0
+        self._total_mb = MODEL_EXPECTED_TOTAL / (1024 * 1024)
         self._download_start_time = 0.0
+        self._load_start_time = 0.0
+        self._elapsed_seconds = 0
         self._speed_samples = []  # list of (time, bytes) for rolling speed
 
     def _check_model_cached(self) -> bool:
-        """Check if model files already exist in cache."""
-        ckpt = GIGAAM_CACHE_DIR / "v3_e2e_rnnt.ckpt"
-        return ckpt.exists() and ckpt.stat().st_size > 100_000_000
+        """Check if model files already exist in cache (fully downloaded)."""
+        ckpt = Path.home() / ".cache" / "gigaam" / "v3_e2e_rnnt.ckpt"
+        # Must be close to expected size (within 10%) to be considered complete
+        if ckpt.exists():
+            size = ckpt.stat().st_size
+            return size > MODEL_EXPECTED_TOTAL * 0.9
+        return False
 
     def _monitor_download(self):
-        """Monitor download progress by checking cache file sizes."""
+        """Monitor download progress by scanning cache directories for model files."""
         self._is_downloading = True
-        self._status = "Downloading GigaAM model..."
+        self._status = "Downloading model..."
         self._download_progress = 0
         self._download_start_time = time.time()
         self._speed_samples = []
 
-        total_expected = sum(MODEL_EXPECTED_SIZES.values())
-        self._total_mb = total_expected / (1024 * 1024)
+        # Take initial snapshot to detect new bytes
+        initial_bytes = _scan_download_bytes()
 
         while self._is_downloading and self._loading:
-            total_downloaded = 0
-            for filename, expected in MODEL_EXPECTED_SIZES.items():
-                fpath = GIGAAM_CACHE_DIR / filename
-                if fpath.exists():
-                    total_downloaded += min(fpath.stat().st_size, expected)
-
             now = time.time()
-            self._downloaded_mb = total_downloaded / (1024 * 1024)
+            current_bytes = _scan_download_bytes()
+            new_bytes = max(0, current_bytes - initial_bytes)
 
-            if total_expected > 0:
-                self._download_progress = min(99, int(total_downloaded * 100 / total_expected))
+            self._downloaded_mb = new_bytes / (1024 * 1024)
+            self._elapsed_seconds = int(now - self._download_start_time)
+
+            if MODEL_EXPECTED_TOTAL > 0:
+                self._download_progress = min(99, int(new_bytes * 100 / MODEL_EXPECTED_TOTAL))
 
             # Track speed with rolling window (last 10 samples = 5 seconds)
-            self._speed_samples.append((now, total_downloaded))
+            self._speed_samples.append((now, new_bytes))
             if len(self._speed_samples) > 10:
                 self._speed_samples = self._speed_samples[-10:]
 
@@ -71,25 +103,22 @@ class Transcriber:
                 t0, b0 = self._speed_samples[0]
                 t1, b1 = self._speed_samples[-1]
                 dt = t1 - t0
-                if dt > 0:
+                if dt > 0.5:
                     self._download_speed = (b1 - b0) / dt
-                    remaining = total_expected - total_downloaded
+                    remaining = MODEL_EXPECTED_TOTAL - new_bytes
                     if self._download_speed > 0:
                         self._download_eta = int(remaining / self._download_speed)
                     else:
                         self._download_eta = 0
-                else:
-                    self._download_speed = 0.0
-                    self._download_eta = 0
-            else:
-                self._download_speed = 0.0
-                self._download_eta = 0
 
-            # Build status message with real data
+            # Build status message
             speed_mbs = self._download_speed / (1024 * 1024)
-            self._status = (
-                f"Downloading model... {self._downloaded_mb:.0f} / {self._total_mb:.0f} MB"
-            )
+            if new_bytes > 0 and self._download_progress > 0:
+                self._status = (
+                    f"Downloading model... {self._downloaded_mb:.0f} / {self._total_mb:.0f} MB"
+                )
+            else:
+                self._status = "Downloading model... waiting for data"
 
             time.sleep(0.5)
 
@@ -99,21 +128,24 @@ class Transcriber:
         if self._model is not None or self._loading:
             return
         self._loading = True
+        self._load_start_time = time.time()
 
-        # Start download monitor if model not cached
+        # Start download monitor — always, even if cached
+        # (it will detect if actual downloading happens)
         monitor_thread = None
         if not self._check_model_cached():
-            self._status = "Downloading GigaAM model..."
+            self._status = "Downloading model..."
             self._is_downloading = True
             monitor_thread = threading.Thread(target=self._monitor_download, daemon=True)
             monitor_thread.start()
         else:
-            self._status = "Loading model..."
+            self._status = "Loading model into memory..."
 
         try:
             import gigaam
             logger.info("Loading GigaAM v3_e2e_rnnt model...")
-            self._status = "Loading model..." if self._check_model_cached() else self._status
+            if self._check_model_cached():
+                self._status = "Loading model into memory..."
             self._model = gigaam.load_model("v3_e2e_rnnt")
             self._status = "Ready"
             logger.info("Model loaded successfully")
@@ -146,6 +178,11 @@ class Transcriber:
     def get_status(self) -> dict:
         """Return current loading status for the UI."""
         speed_mbs = self._download_speed / (1024 * 1024) if self._download_speed else 0.0
+
+        # Always track elapsed time while loading
+        if self._loading and self._load_start_time > 0:
+            self._elapsed_seconds = int(time.time() - self._load_start_time)
+
         return {
             "message": self._status,
             "progress": self._download_progress,
@@ -156,6 +193,7 @@ class Transcriber:
             "eta_seconds": self._download_eta,
             "downloaded_mb": round(self._downloaded_mb, 1),
             "total_mb": round(self._total_mb, 1),
+            "elapsed_seconds": self._elapsed_seconds,
         }
 
     def wait_until_ready(self, timeout=None) -> bool:
@@ -173,7 +211,6 @@ class Transcriber:
             logger.info("Using transcribe_longform...")
             result = self._model.transcribe_longform(audio_path)
             if isinstance(result, list):
-                # transcribe_longform returns list of segments
                 texts = []
                 for segment in result:
                     if isinstance(segment, dict):

@@ -218,6 +218,77 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.btn-logs {
+  margin-top: 20px;
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+.btn-logs:hover {
+  background: var(--bg-card);
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* Logs Modal */
+.modal-logs {
+  width: 90%;
+  max-width: 500px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.logs-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.logs-header h3 {
+  font-size: 16px;
+  margin: 0;
+}
+
+.logs-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.logs-content {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  overflow-y: auto;
+  max-height: 400px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.logs-path {
+  margin-top: 8px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .app {
   max-width: 420px;
   margin: 0 auto;

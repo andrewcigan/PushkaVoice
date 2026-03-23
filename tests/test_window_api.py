@@ -410,6 +410,43 @@ class TestApiOpenFolder:
         mock_run.assert_called_once()
 
 
+class TestApiLogs:
+    def test_get_log_path_returns_string(self, api):
+        path = api.get_log_path()
+        assert isinstance(path, str)
+        assert "dictation.log" in path
+
+    def test_get_logs_no_file(self, api, tmp_path, monkeypatch):
+        # Point to nonexistent log
+        monkeypatch.setattr(api, 'get_log_path', lambda: str(tmp_path / "nope.log"))
+        result = api.get_logs()
+        assert result["lines"] == []
+
+    def test_get_logs_with_file(self, api, tmp_path, monkeypatch):
+        log_file = tmp_path / "dictation.log"
+        log_file.write_text("line1\nline2\nline3\n", encoding="utf-8")
+        monkeypatch.setattr(api, 'get_log_path', lambda: str(log_file))
+        result = api.get_logs()
+        assert len(result["lines"]) == 3
+        assert "line1" in result["lines"][0]
+
+    def test_get_logs_max_lines(self, api, tmp_path, monkeypatch):
+        log_file = tmp_path / "dictation.log"
+        lines = [f"line {i}\n" for i in range(300)]
+        log_file.write_text("".join(lines), encoding="utf-8")
+        monkeypatch.setattr(api, 'get_log_path', lambda: str(log_file))
+        result = api.get_logs(max_lines=50)
+        assert len(result["lines"]) == 50
+        # Should be the LAST 50 lines
+        assert "line 250" in result["lines"][0]
+
+    @patch("ui.window.subprocess.run")
+    def test_open_log_file(self, mock_run, api):
+        result = api.open_log_file()
+        assert result["ok"] is True
+        assert "path" in result
+
+
 class TestApiGetDevices:
     @patch("ui.window.AudioRecorder.list_devices", return_value=[{"id": 0, "name": "Mic"}])
     def test_returns_devices(self, mock_devices, api):
