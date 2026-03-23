@@ -11,8 +11,13 @@ from pathlib import Path
 # at the certifi CA bundle before any HTTPS requests are made.
 try:
     import certifi
+    import ssl
     os.environ.setdefault('SSL_CERT_FILE', certifi.where())
     os.environ.setdefault('REQUESTS_CA_BUNDLE', certifi.where())
+    # Patch default SSL context so urllib.request.urlopen (used by gigaam) trusts certs
+    ssl._create_default_https_context = lambda: ssl.create_default_context(
+        cafile=certifi.where()
+    )
 except ImportError:
     pass  # certifi not available; system certs will be used
 

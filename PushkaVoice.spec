@@ -7,16 +7,30 @@ from pathlib import Path
 
 block_cipher = None
 
+# Include certifi CA bundle so HTTPS works in bundled app
+try:
+    import certifi
+    certifi_data = [(certifi.where(), 'certifi')]
+except ImportError:
+    certifi_data = []
+
 # Collect all data files
 datas = [
     ('ui/web', 'ui/web'),
     ('config/settings.example.json', 'config'),
-]
+] + certifi_data
 
 # Hidden imports that PyInstaller can't detect automatically
 hiddenimports = [
     'gigaam',
     'gigaam.model',
+    'gigaam.encoder',
+    'gigaam.decoder',
+    'gigaam.decoding',
+    'gigaam.preprocess',
+    'gigaam.utils',
+    'gigaam.onnx_utils',
+    'gigaam.vad_utils',
     'torch',
     'torchaudio',
     'torchaudio.functional',
@@ -31,6 +45,12 @@ hiddenimports = [
     'certifi',
     'sentencepiece',
     'hydra',
+    'hydra.core',
+    'hydra.core.config_store',
+    'hydra._internal',
+    'hydra._internal.utils',
+    'hydra._internal.instantiate',
+    'hydra._internal.instantiate._instantiate2',
     'omegaconf',
     'AppKit',
     'Foundation',
