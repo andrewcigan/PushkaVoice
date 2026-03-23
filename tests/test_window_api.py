@@ -71,8 +71,20 @@ class TestApiState:
         t = MagicMock()
         t.is_ready = False
         t.is_downloading = False
+        t.is_loading = True
+        t.has_error = False
         a = Api(config, t)
         assert a.get_state() == "loading"
+
+    def test_get_state_returns_load_error_on_failure(self, config):
+        from ui.window import Api
+        t = MagicMock()
+        t.is_ready = False
+        t.is_loading = False
+        t.is_downloading = False
+        t.has_error = True
+        a = Api(config, t)
+        assert a.get_state() == "load_error"
 
 
 class TestApiGetConfig:
@@ -146,6 +158,19 @@ class TestApiSetup:
         api.transcriber.is_loading = True
         api.complete_setup("local")
         api.transcriber.load_model_async.assert_not_called()
+
+    def test_reset_setup(self, api):
+        api.config.set("setup_complete", True)
+        result = api.reset_setup()
+        assert result == {"ok": True}
+        assert api.config.get("setup_complete") is False
+        assert api.state == "loading"
+
+    def test_retry_model_load(self, api):
+        result = api.retry_model_load()
+        assert result == {"ok": True}
+        assert api.state == "loading"
+        api.transcriber.retry_load.assert_called_once()
 
 
 class TestApiWaitForModel:

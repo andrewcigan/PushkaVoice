@@ -219,7 +219,7 @@ body {
 }
 
 .btn-logs {
-  margin-top: 20px;
+  margin-top: 16px;
   padding: 6px 16px;
   border-radius: 8px;
   border: 1px solid var(--border);
@@ -234,6 +234,51 @@ body {
   background: var(--bg-card);
   color: var(--text);
   border-color: var(--accent);
+}
+
+/* Error state on loading screen */
+.download-error {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: var(--red);
+  font-size: 12px;
+  word-break: break-word;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.download-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: center;
+}
+
+.download-actions .btn {
+  font-size: 12px;
+  padding: 6px 14px;
+}
+
+/* Live log preview on loading screen */
+.log-preview {
+  margin-top: 12px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 6px;
+  font-family: monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  max-height: 60px;
+  overflow: hidden;
+  text-align: left;
+  -webkit-user-select: text;
+  user-select: text;
+  word-break: break-all;
 }
 
 /* Logs Modal */
@@ -565,7 +610,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 400;
   backdrop-filter: blur(4px);
 }
 

@@ -51,6 +51,7 @@ class Transcriber:
         self._loading = False
         self._ready_event = threading.Event()
         self._status = "Waiting..."
+        self._error = None  # error message if loading failed
         self._download_progress = 0  # 0-100
         self._is_downloading = False
         self._download_speed = 0.0  # bytes/sec
@@ -65,7 +66,6 @@ class Transcriber:
     def _check_model_cached(self) -> bool:
         """Check if model files already exist in cache (fully downloaded)."""
         ckpt = Path.home() / ".cache" / "gigaam" / "v3_e2e_rnnt.ckpt"
-        # Must be close to expected size (within 10%) to be considered complete
         if ckpt.exists():
             size = ckpt.stat().st_size
             return size > MODEL_EXPECTED_TOTAL * 0.9
@@ -79,7 +79,6 @@ class Transcriber:
         self._download_start_time = time.time()
         self._speed_samples = []
 
-        # Take initial snapshot to detect new bytes
         initial_bytes = _scan_download_bytes()
 
         while self._is_downloading and self._loading:
@@ -93,12 +92,10 @@ class Transcriber:
             if MODEL_EXPECTED_TOTAL > 0:
                 self._download_progress = min(99, int(new_bytes * 100 / MODEL_EXPECTED_TOTAL))
 
-            # Track speed with rolling window (last 10 samples = 5 seconds)
             self._speed_samples.append((now, new_bytes))
             if len(self._speed_samples) > 10:
                 self._speed_samples = self._speed_samples[-10:]
 
-            # Calculate speed from rolling window
             if len(self._speed_samples) >= 2:
                 t0, b0 = self._speed_samples[0]
                 t1, b1 = self._speed_samples[-1]
@@ -111,8 +108,6 @@ class Transcriber:
                     else:
                         self._download_eta = 0
 
-            # Build status message
-            speed_mbs = self._download_speed / (1024 * 1024)
             if new_bytes > 0 and self._download_progress > 0:
                 self._status = (
                     f"Downloading model... {self._downloaded_mb:.0f} / {self._total_mb:.0f} MB"
@@ -128,10 +123,9 @@ class Transcriber:
         if self._model is not None or self._loading:
             return
         self._loading = True
+        self._error = None
         self._load_start_time = time.time()
 
-        # Start download monitor — always, even if cached
-        # (it will detect if actual downloading happens)
         monitor_thread = None
         if not self._check_model_cached():
             self._status = "Downloading model..."
@@ -148,10 +142,13 @@ class Transcriber:
                 self._status = "Loading model into memory..."
             self._model = gigaam.load_model("v3_e2e_rnnt")
             self._status = "Ready"
+            self._error = None
             logger.info("Model loaded successfully")
         except Exception as e:
-            self._status = f"Error: {e}"
-            logger.error(f"Failed to load model: {e}")
+            error_msg = str(e)
+            self._status = f"Error: {error_msg}"
+            self._error = error_msg
+            logger.error(f"Failed to load model: {e}", exc_info=True)
         finally:
             self._is_downloading = False
             self._loading = False
@@ -160,8 +157,24 @@ class Transcriber:
                 monitor_thread.join(timeout=2)
 
     def load_model_async(self):
+        self._ready_event.clear()
         t = threading.Thread(target=self.load_model, daemon=True)
         t.start()
+
+    def retry_load(self):
+        """Reset state and retry model loading."""
+        self._model = None
+        self._loading = False
+        self._error = None
+        self._status = "Retrying..."
+        self._download_progress = 0
+        self._is_downloading = False
+        self._download_speed = 0.0
+        self._download_eta = 0
+        self._downloaded_mb = 0.0
+        self._elapsed_seconds = 0
+        self._speed_samples = []
+        self.load_model_async()
 
     @property
     def is_ready(self) -> bool:
@@ -175,11 +188,14 @@ class Transcriber:
     def is_downloading(self) -> bool:
         return self._is_downloading
 
+    @property
+    def has_error(self) -> bool:
+        return self._error is not None
+
     def get_status(self) -> dict:
         """Return current loading status for the UI."""
         speed_mbs = self._download_speed / (1024 * 1024) if self._download_speed else 0.0
 
-        # Always track elapsed time while loading
         if self._loading and self._load_start_time > 0:
             self._elapsed_seconds = int(time.time() - self._load_start_time)
 
@@ -189,6 +205,7 @@ class Transcriber:
             "downloading": self._is_downloading,
             "loading": self._loading,
             "ready": self.is_ready,
+            "error": self._error,
             "speed_mbs": round(speed_mbs, 1),
             "eta_seconds": self._download_eta,
             "downloaded_mb": round(self._downloaded_mb, 1),

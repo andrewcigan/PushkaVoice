@@ -92,8 +92,15 @@ def mock_transcriber():
     t.is_ready = True
     t.is_loading = False
     t.is_downloading = False
+    t.has_error = False
+    t._error = None
     t.transcribe.return_value = "тестовый текст для транскрипции"
-    t.get_status.return_value = {"message": "Ready", "progress": 100, "downloading": False, "loading": False, "ready": True}
+    t.get_status.return_value = {
+        "message": "Ready", "progress": 100, "downloading": False,
+        "loading": False, "ready": True, "error": None,
+        "speed_mbs": 0, "eta_seconds": 0, "downloaded_mb": 0,
+        "total_mb": 0, "elapsed_seconds": 0,
+    }
     return t
 
 

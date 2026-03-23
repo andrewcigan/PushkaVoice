@@ -1,5 +1,5 @@
 // State
-let state = 'idle'; // idle, recording, transcribing, loading, setup
+let state = 'idle'; // idle, recording, transcribing, loading, setup, load_error
 let timerInterval = null;
 let timerSeconds = 0;
 
@@ -32,6 +32,11 @@ const downloadStatus = document.getElementById('download-status');
 const downloadDetail = document.getElementById('download-detail');
 const downloadSpeed = document.getElementById('download-speed');
 const progressBar = document.getElementById('progress-bar');
+const downloadError = document.getElementById('download-error');
+const downloadActions = document.getElementById('download-actions');
+const retryLoadBtn = document.getElementById('retry-load-btn');
+const resetSetupBtn = document.getElementById('reset-setup-btn');
+const logPreview = document.getElementById('log-preview');
 const viewLogsBtn = document.getElementById('view-logs-btn');
 const logsModal = document.getElementById('logs-modal');
 const logsContent = document.getElementById('logs-content');
@@ -95,6 +100,10 @@ function updateTimerDisplay() {
 function setState(newState) {
   state = newState;
 
+  // Hide error/action elements by default
+  downloadError.classList.add('hidden');
+  downloadActions.classList.add('hidden');
+
   switch (state) {
     case 'setup':
       setupScreen.classList.remove('hidden');
@@ -109,6 +118,7 @@ function setState(newState) {
       recordBtn.disabled = true;
       recordLabel.textContent = 'Downloading model...';
       downloadScreen.classList.remove('hidden');
+      progressBar.classList.remove('indeterminate');
       startStatusPolling();
       break;
 
@@ -124,6 +134,22 @@ function setState(newState) {
       progressBar.style.width = '30%';
       downloadDetail.textContent = 'This may take a minute on first launch';
       downloadSpeed.textContent = '';
+      startStatusPolling();
+      break;
+
+    case 'load_error':
+      setupScreen.classList.add('hidden');
+      statusBadge.textContent = 'Error';
+      statusBadge.className = 'badge badge-loading';
+      recordBtn.disabled = true;
+      recordLabel.textContent = 'Model failed to load';
+      downloadScreen.classList.remove('hidden');
+      downloadStatus.textContent = 'Failed to load model';
+      progressBar.classList.remove('indeterminate');
+      progressBar.style.width = '0%';
+      downloadDetail.textContent = '';
+      downloadSpeed.textContent = '';
+      downloadActions.classList.remove('hidden');
       startStatusPolling();
       break;
 
@@ -176,6 +202,17 @@ async function handleSetupChoice(provider) {
 
 setupLocalBtn.addEventListener('click', () => handleSetupChoice('local'));
 setupCloudBtn.addEventListener('click', () => handleSetupChoice('openrouter'));
+
+// Retry / Reset buttons on error screen
+retryLoadBtn.addEventListener('click', async () => {
+  await pywebview.api.retry_model_load();
+  setState('loading');
+});
+
+resetSetupBtn.addEventListener('click', async () => {
+  await pywebview.api.reset_setup();
+  setState('setup');
+});
 
 // Record button click
 recordBtn.addEventListener('click', async () => {
@@ -237,7 +274,7 @@ function toggleOpenrouterSettings(provider) {
   }
 }
 
-// OpenRouter API key (save on blur to avoid saving on every keystroke)
+// OpenRouter API key
 let keyDebounce = null;
 openrouterKeyInput.addEventListener('input', () => {
   clearTimeout(keyDebounce);
@@ -282,10 +319,23 @@ async function refreshLogs() {
     const result = await pywebview.api.get_logs(200);
     logsContent.textContent = result.lines.join('');
     logsPath.textContent = result.path;
-    // Auto-scroll to bottom
     logsContent.scrollTop = logsContent.scrollHeight;
   } catch (e) {
     logsContent.textContent = 'Failed to load logs: ' + e;
+  }
+}
+
+// Live log preview on loading screen (last 3 lines)
+async function updateLogPreview() {
+  if (!window.pywebview || !window.pywebview.api) return;
+  try {
+    const result = await pywebview.api.get_logs(5);
+    if (result.lines && result.lines.length > 0) {
+      const last3 = result.lines.slice(-3).map(l => l.trim()).join('\n');
+      logPreview.textContent = last3;
+    }
+  } catch (e) {
+    // ignore
   }
 }
 
@@ -378,6 +428,7 @@ function showPopup(msg, isError = false) {
 
 // Status polling for download/loading screen
 let statusPollInterval = null;
+let logPreviewCounter = 0;
 
 function startStatusPolling() {
   if (statusPollInterval) return;
@@ -385,35 +436,34 @@ function startStatusPolling() {
     if (!window.pywebview || !window.pywebview.api) return;
     try {
       const status = await pywebview.api.get_loading_status();
+      const elapsed = formatElapsed(status.elapsed_seconds);
 
-      if (status.ready) {
+      // Check for error FIRST
+      if (status.error) {
+        downloadStatus.textContent = 'Failed to load model';
+        progressBar.classList.remove('indeterminate');
+        progressBar.style.width = '0%';
+        downloadDetail.textContent = '';
+        downloadError.textContent = status.error;
+        downloadError.classList.remove('hidden');
+        downloadActions.classList.remove('hidden');
+        downloadSpeed.textContent = `Elapsed: ${elapsed}`;
+      } else if (status.ready) {
         downloadStatus.textContent = 'Ready!';
         progressBar.classList.remove('indeterminate');
         progressBar.style.width = '100%';
         downloadDetail.textContent = '';
         downloadSpeed.textContent = '';
-        return;
-      }
-
-      // Always show elapsed time
-      const elapsed = formatElapsed(status.elapsed_seconds);
-
-      if (status.downloading) {
+        downloadError.classList.add('hidden');
+        downloadActions.classList.add('hidden');
+      } else if (status.downloading) {
         downloadStatus.textContent = status.message;
         progressBar.classList.remove('indeterminate');
         progressBar.style.width = status.progress + '%';
-
-        // Show real download details
         downloadDetail.textContent = `${status.downloaded_mb} / ${status.total_mb} MB  (${status.progress}%)`;
-
-        // Show speed, ETA and elapsed
         const parts = [];
-        if (status.speed_mbs > 0) {
-          parts.push(`${status.speed_mbs} MB/s`);
-        }
-        if (status.eta_seconds > 0) {
-          parts.push(formatEta(status.eta_seconds));
-        }
+        if (status.speed_mbs > 0) parts.push(`${status.speed_mbs} MB/s`);
+        if (status.eta_seconds > 0) parts.push(formatEta(status.eta_seconds));
         parts.push(`Elapsed: ${elapsed}`);
         downloadSpeed.textContent = parts.join('  \u2022  ');
       } else if (status.loading) {
@@ -422,6 +472,12 @@ function startStatusPolling() {
         progressBar.style.width = '30%';
         downloadDetail.textContent = 'This may take a minute on first launch';
         downloadSpeed.textContent = `Elapsed: ${elapsed}`;
+      }
+
+      // Update live log preview every ~3 seconds (every 6th poll at 500ms)
+      logPreviewCounter++;
+      if (logPreviewCounter % 6 === 0) {
+        await updateLogPreview();
       }
     } catch (e) {
       // ignore
@@ -434,6 +490,7 @@ function stopStatusPolling() {
     clearInterval(statusPollInterval);
     statusPollInterval = null;
   }
+  logPreviewCounter = 0;
 }
 
 // Init
@@ -498,7 +555,7 @@ async function init() {
   }, 500);
 }
 
-// Use pywebviewready event — fires after pywebview.api is available
+// Use pywebviewready event
 window.addEventListener('pywebviewready', () => {
   console.log('pywebviewready fired');
   init();

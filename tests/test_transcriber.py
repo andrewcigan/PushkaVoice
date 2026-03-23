@@ -44,10 +44,11 @@ class TestTranscriberGetStatus:
         assert status["downloading"] is False
         assert status["loading"] is False
         assert status["ready"] is False
+        assert status["error"] is None
         assert status["speed_mbs"] == 0.0
         assert status["eta_seconds"] == 0
         assert status["downloaded_mb"] == 0.0
-        assert status["total_mb"] > 0  # has expected total
+        assert status["total_mb"] > 0
         assert "elapsed_seconds" in status
 
     def test_status_after_load(self, mock_gigaam):
@@ -59,11 +60,23 @@ class TestTranscriberGetStatus:
         assert status["ready"] is True
         assert status["loading"] is False
         assert status["downloading"] is False
+        assert status["error"] is None
+
+    def test_status_after_error(self, mock_gigaam):
+        mock_gigaam.load_model.side_effect = RuntimeError("GPU unavailable")
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+        status = t.get_status()
+        assert status["ready"] is False
+        assert status["loading"] is False
+        assert status["error"] == "GPU unavailable"
+        assert t.has_error is True
 
     def test_status_contains_speed_fields(self):
         from core.transcriber import Transcriber
         t = Transcriber()
-        t._download_speed = 5 * 1024 * 1024  # 5 MB/s
+        t._download_speed = 5 * 1024 * 1024
         t._download_eta = 90
         t._downloaded_mb = 250.5
         t._total_mb = 500.0
@@ -117,6 +130,37 @@ class TestTranscriberLoadModel:
         t.load_model()
         assert not t.is_ready
         assert not t.is_loading
+
+
+class TestTranscriberRetryLoad:
+    def test_retry_resets_error(self, mock_gigaam):
+        mock_gigaam.load_model.side_effect = RuntimeError("fail")
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+        assert t.has_error is True
+
+        # Now fix the mock and retry
+        mock_gigaam.load_model.side_effect = None
+        mock_gigaam.load_model.return_value = MagicMock()
+        t.retry_load()
+        t.wait_until_ready(timeout=2)
+        assert t.is_ready is True
+        assert t.has_error is False
+
+    def test_retry_clears_state(self, mock_gigaam):
+        mock_gigaam.load_model.side_effect = RuntimeError("fail")
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+        assert t._error is not None
+
+        mock_gigaam.load_model.side_effect = None
+        mock_gigaam.load_model.return_value = MagicMock()
+        t.retry_load()
+        # Check that state was cleared before async load
+        assert t._download_progress == 0
+        assert t._speed_samples == []
 
 
 class TestTranscriberWaitUntilReady:

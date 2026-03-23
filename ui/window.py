@@ -45,6 +45,12 @@ class Api:
         # Auto-transition from loading to idle when model is ready
         if self._state == "loading" and self.transcriber.is_ready:
             self.state = "idle"
+        # Detect model loading error (not loading, not ready, has error)
+        if (self._state == "loading"
+                and not self.transcriber.is_loading
+                and not self.transcriber.is_ready
+                and self.transcriber.has_error):
+            return "load_error"
         # Report downloading sub-state
         if self._state == "loading" and self.transcriber.is_downloading:
             return "downloading"
@@ -84,6 +90,18 @@ class Api:
         # Start loading the transcriber model
         if not self.transcriber.is_ready and not self.transcriber.is_loading:
             self.transcriber.load_model_async()
+        return {"ok": True}
+
+    def reset_setup(self):
+        """Reset setup so the choice screen shows again."""
+        self.config.set("setup_complete", False)
+        self.state = "loading"
+        return {"ok": True}
+
+    def retry_model_load(self):
+        """Retry loading the model after an error."""
+        self.state = "loading"
+        self.transcriber.retry_load()
         return {"ok": True}
 
     def wait_for_model(self):
