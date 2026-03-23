@@ -1,4 +1,4 @@
-# GigaAM Dictation
+# Pushka Voice Dictation
 
 macOS menu bar приложение для диктовки на русском языке с использованием модели GigaAM-v3 от Сбера.
 
