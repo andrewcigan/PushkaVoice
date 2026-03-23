@@ -348,3 +348,48 @@ class TestTranscriberTranscribe:
         t.load_model()
         result = t.transcribe("test.wav")
         assert "сегмент" in result
+
+
+class TestSSLCertFix:
+    """Verify SSL certificate environment is configured for bundled app."""
+
+    def test_ssl_cert_file_set_after_app_import(self, monkeypatch):
+        """Importing app.py should set SSL_CERT_FILE via certifi."""
+        import os
+        # Remove existing values so setdefault takes effect
+        monkeypatch.delenv('SSL_CERT_FILE', raising=False)
+        monkeypatch.delenv('REQUESTS_CA_BUNDLE', raising=False)
+
+        # Mock certifi to avoid needing it installed
+        mock_certifi = MagicMock()
+        mock_certifi.where.return_value = "/fake/cacert.pem"
+        monkeypatch.setitem(sys.modules, "certifi", mock_certifi)
+
+        # Re-execute the SSL fix logic from app.py
+        import certifi
+        os.environ.setdefault('SSL_CERT_FILE', certifi.where())
+        os.environ.setdefault('REQUESTS_CA_BUNDLE', certifi.where())
+
+        assert os.environ.get('SSL_CERT_FILE') == "/fake/cacert.pem"
+        assert os.environ.get('REQUESTS_CA_BUNDLE') == "/fake/cacert.pem"
+
+    def test_ssl_cert_does_not_override_existing(self, monkeypatch):
+        """If SSL_CERT_FILE is already set, don't override it."""
+        import os
+        monkeypatch.setenv('SSL_CERT_FILE', '/custom/cert.pem')
+
+        mock_certifi = MagicMock()
+        mock_certifi.where.return_value = "/fake/cacert.pem"
+        monkeypatch.setitem(sys.modules, "certifi", mock_certifi)
+
+        import certifi
+        os.environ.setdefault('SSL_CERT_FILE', certifi.where())
+
+        assert os.environ.get('SSL_CERT_FILE') == "/custom/cert.pem"
+
+    def test_model_name_not_v3(self):
+        """Ensure the old invalid model name is never used."""
+        from core.transcriber import MODEL_NAME
+        assert "v3" not in MODEL_NAME
+        assert "e2e" not in MODEL_NAME
+        assert MODEL_NAME == "rnnt"

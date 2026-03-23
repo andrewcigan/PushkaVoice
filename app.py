@@ -6,6 +6,16 @@ import threading
 import time
 from pathlib import Path
 
+# Fix SSL certificates for PyInstaller bundles on macOS.
+# Bundled Python cannot find system CA certs, so we point OpenSSL
+# at the certifi CA bundle before any HTTPS requests are made.
+try:
+    import certifi
+    os.environ.setdefault('SSL_CERT_FILE', certifi.where())
+    os.environ.setdefault('REQUESTS_CA_BUNDLE', certifi.where())
+except ImportError:
+    pass  # certifi not available; system certs will be used
+
 # Detect PyInstaller bundled mode
 if getattr(sys, 'frozen', False):
     # Running as PyInstaller bundle

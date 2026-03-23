@@ -28,6 +28,7 @@ hiddenimports = [
     'pynput.keyboard._darwin',
     'webview',
     'dotenv',
+    'certifi',
     'sentencepiece',
     'hydra',
     'omegaconf',

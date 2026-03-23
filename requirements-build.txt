@@ -8,6 +8,9 @@ sounddevice>=0.4
 numpy
 python-dotenv>=1.0
 
+# SSL certificates for bundled app
+certifi
+
 # GigaAM and its dependencies
 gigaam
 
