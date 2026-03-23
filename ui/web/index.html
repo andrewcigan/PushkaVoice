@@ -51,6 +51,23 @@
           <span class="toggle-slider"></span>
         </label>
       </div>
+      <div class="setting-row">
+        <label>LLM Provider</label>
+        <select id="llm-provider-select" class="select">
+          <option value="local">Local (Ollama)</option>
+          <option value="openrouter">OpenRouter</option>
+        </select>
+      </div>
+      <div id="openrouter-settings" class="hidden">
+        <div class="setting-row">
+          <label>API Key</label>
+          <input type="password" id="openrouter-key" class="text-input" placeholder="sk-or-...">
+        </div>
+        <div class="setting-row">
+          <label>Model</label>
+          <input type="text" id="openrouter-model" class="text-input" placeholder="google/gemma-3-4b-it:free">
+        </div>
+      </div>
     </section>
 
     <!-- Hotkey Edit Modal -->

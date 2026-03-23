@@ -11,6 +11,9 @@ DEFAULT_SETTINGS = {
     "auto_paste": True,
     "sample_rate": 16000,
     "llm_cleanup": True,
+    "llm_provider": "local",  # "local" (Ollama) or "openrouter"
+    "openrouter_api_key": "",
+    "openrouter_model": "google/gemma-3-4b-it:free",
 }
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "settings.json"

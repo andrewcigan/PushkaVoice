@@ -8,7 +8,7 @@ from pathlib import Path
 
 from core.clipboard import copy_and_paste, copy_to_clipboard
 from core.recorder import AudioRecorder
-from core.text_cleaner import clean_text_with_llm, is_ollama_available
+from core.text_cleaner import clean_text
 from core.transcriber import Transcriber
 from utils.config import Config
 
@@ -55,6 +55,9 @@ class Api:
             "microphone_device_id": self.config.microphone_device_id,
             "auto_paste": self.config.auto_paste,
             "sample_rate": self.config.sample_rate,
+            "llm_provider": self.config.get("llm_provider", "local"),
+            "openrouter_api_key": self.config.get("openrouter_api_key", ""),
+            "openrouter_model": self.config.get("openrouter_model", "google/gemma-3-4b-it:free"),
         }
 
     def set_config(self, key, value):
@@ -122,11 +125,13 @@ class Api:
 
             # Clean text with LLM if available
             raw_text = text
-            if self.config.get("llm_cleanup", True) and is_ollama_available():
-                logger.info("Cleaning text with Gemma...")
-                text = clean_text_with_llm(text)
+            if self.config.get("llm_cleanup", True):
+                provider = self.config.get("llm_provider", "local")
+                logger.info(f"Cleaning text with LLM (provider: {provider})...")
+                text = clean_text(text, self.config)
                 if text != raw_text:
                     logger.info(f"LLM cleaned: '{raw_text[:50]}' -> '{text[:50]}'")
+
 
             # Save text file (cleaned version)
             txt_path = wav_path.replace(".wav", ".txt")

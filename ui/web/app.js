@@ -19,6 +19,10 @@ const hotkeySave = document.getElementById('hotkey-save');
 const hotkeyCancel = document.getElementById('hotkey-cancel');
 const autopasteToggle = document.getElementById('autopaste-toggle');
 const openFolderBtn = document.getElementById('open-folder-btn');
+const llmProviderSelect = document.getElementById('llm-provider-select');
+const openrouterSettings = document.getElementById('openrouter-settings');
+const openrouterKeyInput = document.getElementById('openrouter-key');
+const openrouterModelInput = document.getElementById('openrouter-model');
 const historyList = document.getElementById('history-list');
 
 // Format hotkey for display
@@ -149,6 +153,38 @@ autopasteToggle.addEventListener('change', async () => {
   await pywebview.api.set_config('auto_paste', autopasteToggle.checked);
 });
 
+// LLM Provider
+llmProviderSelect.addEventListener('change', async () => {
+  const provider = llmProviderSelect.value;
+  await pywebview.api.set_config('llm_provider', provider);
+  toggleOpenrouterSettings(provider);
+});
+
+function toggleOpenrouterSettings(provider) {
+  if (provider === 'openrouter') {
+    openrouterSettings.classList.remove('hidden');
+  } else {
+    openrouterSettings.classList.add('hidden');
+  }
+}
+
+// OpenRouter API key (save on blur to avoid saving on every keystroke)
+let keyDebounce = null;
+openrouterKeyInput.addEventListener('input', () => {
+  clearTimeout(keyDebounce);
+  keyDebounce = setTimeout(async () => {
+    await pywebview.api.set_config('openrouter_api_key', openrouterKeyInput.value.trim());
+  }, 500);
+});
+
+let modelDebounce = null;
+openrouterModelInput.addEventListener('input', () => {
+  clearTimeout(modelDebounce);
+  modelDebounce = setTimeout(async () => {
+    await pywebview.api.set_config('openrouter_model', openrouterModelInput.value.trim());
+  }, 500);
+});
+
 // Open folder
 openFolderBtn.addEventListener('click', async () => {
   await pywebview.api.open_dictations_folder();
@@ -254,6 +290,13 @@ async function init() {
   hotkeyText.textContent = formatHotkey(config.hotkey);
   autopasteToggle.checked = config.auto_paste;
   hotkeyPreset.value = config.hotkey;
+
+  // Load LLM provider settings
+  const provider = config.llm_provider || 'local';
+  llmProviderSelect.value = provider;
+  toggleOpenrouterSettings(provider);
+  openrouterKeyInput.value = config.openrouter_api_key || '';
+  openrouterModelInput.value = config.openrouter_model || 'google/gemma-3-4b-it:free';
 
   // Load devices
   try {

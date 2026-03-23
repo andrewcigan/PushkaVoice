@@ -202,6 +202,28 @@ body {
   padding-right: 28px;
 }
 
+.text-input {
+  background: var(--bg-secondary);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  max-width: 200px;
+  width: 200px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.text-input:focus {
+  border-color: var(--accent);
+}
+
+.text-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+
 .hotkey-display {
   display: flex;
   align-items: center;

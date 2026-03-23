@@ -2,6 +2,8 @@ import json
 import logging
 import subprocess
 import time
+import urllib.request
+import urllib.error
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +94,89 @@ def clean_text_with_llm(text: str, timeout: float = 30.0) -> str:
         return text
     except Exception as e:
         logger.warning(f"LLM cleanup failed: {e}")
+        return text
+
+
+def clean_text_with_openrouter(text: str, api_key: str, model: str = "google/gemma-3-4b-it:free", timeout: float = 30.0) -> str:
+    """Clean ASR transcript using OpenRouter API.
+
+    Returns cleaned text, or original text if API call fails.
+    """
+    if not text or not text.strip():
+        return text
+
+    if not api_key:
+        logger.warning("OpenRouter API key not set")
+        return text
+
+    try:
+        start = time.time()
+
+        payload = json.dumps({
+            "model": model,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": text},
+            ],
+            "temperature": 0.1,
+            "top_p": 0.9,
+            "max_tokens": len(text) * 2,
+        }).encode("utf-8")
+
+        req = urllib.request.Request(
+            "https://openrouter.ai/api/v1/chat/completions",
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api_key}",
+            },
+        )
+
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+
+        cleaned = data.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+
+        elapsed = time.time() - start
+        logger.info(f"OpenRouter cleanup in {elapsed:.1f}s: '{text[:50]}...' → '{cleaned[:50]}...'")
+
+        if not cleaned:
+            logger.warning("OpenRouter returned empty response, using original")
+            return text
+
+        if len(cleaned) > len(text) * 1.3:
+            logger.warning(f"OpenRouter output suspiciously longer ({len(cleaned)} vs {len(text)}), using original")
+            return text
+
+        return cleaned
+
+    except urllib.error.HTTPError as e:
+        logger.warning(f"OpenRouter HTTP error {e.code}: {e.reason}")
+        return text
+    except Exception as e:
+        logger.warning(f"OpenRouter cleanup failed: {e}")
+        return text
+
+
+def clean_text(text: str, config, timeout: float = 30.0) -> str:
+    """Dispatch text cleanup to the configured LLM provider."""
+    if not config.get("llm_cleanup", True):
+        return text
+
+    provider = config.get("llm_provider", "local")
+
+    if provider == "openrouter":
+        api_key = config.get("openrouter_api_key", "")
+        model = config.get("openrouter_model", "google/gemma-3-4b-it:free")
+        if api_key:
+            return clean_text_with_openrouter(text, api_key, model, timeout)
+        else:
+            logger.warning("OpenRouter selected but no API key set, skipping cleanup")
+            return text
+    else:
+        # Local Ollama
+        if is_ollama_available():
+            return clean_text_with_llm(text, timeout)
         return text
 
 
