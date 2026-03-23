@@ -91,7 +91,9 @@ def mock_transcriber():
     t = MagicMock()
     t.is_ready = True
     t.is_loading = False
+    t.is_downloading = False
     t.transcribe.return_value = "тестовый текст для транскрипции"
+    t.get_status.return_value = {"message": "Ready", "progress": 100, "downloading": False, "loading": False, "ready": True}
     return t
 
 

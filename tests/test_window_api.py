@@ -70,6 +70,7 @@ class TestApiState:
         from ui.window import Api
         t = MagicMock()
         t.is_ready = False
+        t.is_downloading = False
         a = Api(config, t)
         assert a.get_state() == "loading"
 

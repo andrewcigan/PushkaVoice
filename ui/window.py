@@ -44,7 +44,14 @@ class Api:
         # Auto-transition from loading to idle when model is ready
         if self._state == "loading" and self.transcriber.is_ready:
             self.state = "idle"
+        # Report downloading sub-state
+        if self._state == "loading" and self.transcriber.is_downloading:
+            return "downloading"
         return self._state
+
+    def get_loading_status(self):
+        """Return model loading/download progress for the UI."""
+        return self.transcriber.get_status()
 
     def get_devices(self):
         return AudioRecorder.list_devices()

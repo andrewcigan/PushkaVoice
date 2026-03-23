@@ -24,6 +24,10 @@ const openrouterSettings = document.getElementById('openrouter-settings');
 const openrouterKeyInput = document.getElementById('openrouter-key');
 const openrouterModelInput = document.getElementById('openrouter-model');
 const historyList = document.getElementById('history-list');
+const downloadScreen = document.getElementById('download-screen');
+const downloadStatus = document.getElementById('download-status');
+const downloadDetail = document.getElementById('download-detail');
+const progressBar = document.getElementById('progress-bar');
 
 // Format hotkey for display
 function formatHotkey(raw) {
@@ -63,11 +67,26 @@ function setState(newState) {
   state = newState;
 
   switch (state) {
+    case 'downloading':
+      statusBadge.textContent = 'Downloading...';
+      statusBadge.className = 'badge badge-loading';
+      recordBtn.disabled = true;
+      recordLabel.textContent = 'Downloading model...';
+      downloadScreen.classList.remove('hidden');
+      startStatusPolling();
+      break;
+
     case 'loading':
       statusBadge.textContent = 'Loading model...';
       statusBadge.className = 'badge badge-loading';
       recordBtn.disabled = true;
       recordLabel.textContent = 'Loading model...';
+      downloadScreen.classList.remove('hidden');
+      downloadStatus.textContent = 'Loading model...';
+      progressBar.classList.add('indeterminate');
+      progressBar.style.width = '30%';
+      downloadDetail.textContent = '';
+      startStatusPolling();
       break;
 
     case 'idle':
@@ -81,6 +100,8 @@ function setState(newState) {
       recordLabel.textContent = 'Press to record';
       stopTimer();
       timer.textContent = '00:00';
+      downloadScreen.classList.add('hidden');
+      stopStatusPolling();
       break;
 
     case 'recording':
@@ -275,6 +296,44 @@ function showPopup(msg, isError = false) {
   popup.style.background = isError ? 'var(--red)' : 'var(--green)';
   popup.classList.add('show');
   setTimeout(() => popup.classList.remove('show'), isError ? 4000 : 2000);
+}
+
+// Status polling for download/loading screen
+let statusPollInterval = null;
+
+function startStatusPolling() {
+  if (statusPollInterval) return;
+  statusPollInterval = setInterval(async () => {
+    if (!window.pywebview || !window.pywebview.api) return;
+    try {
+      const status = await pywebview.api.get_loading_status();
+      if (status.downloading) {
+        downloadStatus.textContent = status.message;
+        progressBar.classList.remove('indeterminate');
+        progressBar.style.width = status.progress + '%';
+        downloadDetail.textContent = status.progress + '% complete';
+      } else if (status.loading) {
+        downloadStatus.textContent = 'Loading model...';
+        progressBar.classList.add('indeterminate');
+        progressBar.style.width = '30%';
+        downloadDetail.textContent = 'Initializing speech recognition';
+      } else if (status.ready) {
+        downloadStatus.textContent = 'Ready!';
+        progressBar.classList.remove('indeterminate');
+        progressBar.style.width = '100%';
+        downloadDetail.textContent = '';
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, 500);
+}
+
+function stopStatusPolling() {
+  if (statusPollInterval) {
+    clearInterval(statusPollInterval);
+    statusPollInterval = null;
+  }
 }
 
 // Init

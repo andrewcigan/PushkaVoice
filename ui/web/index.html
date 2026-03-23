@@ -7,6 +7,24 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <!-- Download/Loading Overlay -->
+  <div id="download-screen" class="download-screen">
+    <div class="download-content">
+      <div class="download-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
+          <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
+        </svg>
+      </div>
+      <h2 class="download-title">PushkaVoice</h2>
+      <p id="download-status" class="download-status">Preparing...</p>
+      <div class="progress-bar-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <p id="download-detail" class="download-detail"></p>
+    </div>
+  </div>
+
   <div class="app">
     <!-- Header -->
     <header class="header">

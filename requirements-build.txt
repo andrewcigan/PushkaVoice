@@ -1,0 +1,16 @@
+# Build-time dependencies for creating macOS .app bundle
+pyinstaller>=6.0
+pywebview>=5.0
+
+# Runtime dependencies
+pynput>=1.7
+sounddevice>=0.4
+numpy
+python-dotenv>=1.0
+
+# GigaAM and its dependencies
+gigaam
+
+# macOS frameworks (installed on macOS only)
+pyobjc-framework-Cocoa>=9.0
+pyobjc-framework-Quartz>=9.0

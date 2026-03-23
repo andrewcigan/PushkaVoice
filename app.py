@@ -6,8 +6,16 @@ import threading
 import time
 from pathlib import Path
 
-# Add app directory to path
-APP_DIR = Path(__file__).parent
+# Detect PyInstaller bundled mode
+if getattr(sys, 'frozen', False):
+    # Running as PyInstaller bundle
+    APP_DIR = Path(sys._MEIPASS)
+    DATA_DIR = Path.home() / ".pushkavoice"
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+else:
+    APP_DIR = Path(__file__).parent
+    DATA_DIR = APP_DIR
+
 sys.path.insert(0, str(APP_DIR))
 
 # Setup logging
@@ -16,19 +24,21 @@ logging.basicConfig(
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(APP_DIR / "dictation.log", encoding="utf-8"),
+        logging.FileHandler(DATA_DIR / "dictation.log", encoding="utf-8"),
     ],
 )
 logger = logging.getLogger(__name__)
 
 
 def main():
-    # Load .env
+    # Load .env (check both DATA_DIR and APP_DIR for bundled mode)
     from dotenv import load_dotenv
-    env_path = APP_DIR / ".env"
-    if env_path.exists():
-        load_dotenv(env_path)
-        logger.info("Loaded .env")
+    for env_dir in [DATA_DIR, APP_DIR]:
+        env_path = env_dir / ".env"
+        if env_path.exists():
+            load_dotenv(env_path)
+            logger.info(f"Loaded .env from {env_dir}")
+            break
 
     hf_token = os.environ.get("HF_TOKEN")
     if not hf_token:

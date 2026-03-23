@@ -1,0 +1,90 @@
+name: Build macOS App
+
+on:
+  push:
+    branches:
+      - claude/llm-provider-settings-fr4tr
+      - main
+    paths-ignore:
+      - 'tests/**'
+      - '*.md'
+      - '.gitignore'
+
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build PushkaVoice.app (arm64)
+    runs-on: macos-14  # Apple Silicon M1
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-build.txt
+
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller PushkaVoice.spec --noconfirm
+          echo "Build complete. Contents of dist/:"
+          ls -la dist/
+          ls -la dist/PushkaVoice.app/Contents/ || true
+
+      - name: Ad-hoc codesign
+        run: |
+          codesign --force --deep -s - dist/PushkaVoice.app
+          echo "Codesign complete"
+
+      - name: Create ZIP archive
+        run: |
+          cd dist
+          ditto -c -k --keepParent PushkaVoice.app ../PushkaVoice-macos-arm64.zip
+          cd ..
+          ls -lh PushkaVoice-macos-arm64.zip
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PushkaVoice-macos-arm64
+          path: PushkaVoice-macos-arm64.zip
+          retention-days: 30
+
+      - name: Create Release
+        if: github.ref == 'refs/heads/claude/llm-provider-settings-fr4tr' || github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-beta.${{ github.run_number }}
+          name: PushkaVoice v0.1.0-beta (Build ${{ github.run_number }})
+          body: |
+            ## PushkaVoice v0.1.0-beta
+
+            Standalone macOS app for Russian speech-to-text dictation.
+
+            **Features:**
+            - GigaAM v3 speech recognition (downloaded on first launch)
+            - LLM text cleanup: Local Ollama or OpenRouter cloud API
+            - Global hotkey for quick recording
+            - Auto-paste to active app
+
+            **Requirements:**
+            - macOS 14+ (Apple Silicon)
+            - ~500 MB disk space for model (downloaded automatically)
+
+            **Installation:**
+            1. Download `PushkaVoice-macos-arm64.zip`
+            2. Unzip and move `PushkaVoice.app` to Applications
+            3. Right-click → Open (first time, to bypass Gatekeeper)
+            4. Allow microphone access when prompted
+          files: PushkaVoice-macos-arm64.zip
+          draft: false
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

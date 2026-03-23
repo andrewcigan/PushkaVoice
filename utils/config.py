@@ -1,13 +1,20 @@
 import json
 import os
+import sys
 from pathlib import Path
+
+# In bundled mode, store user data in ~/.pushkavoice
+if getattr(sys, 'frozen', False):
+    _DATA_DIR = Path.home() / ".pushkavoice"
+else:
+    _DATA_DIR = Path(__file__).parent.parent
 
 DEFAULT_SETTINGS = {
     "hotkey": "<cmd>+<shift>+d",
     "microphone_device_id": None,
     "indicator_mode": "menubar",
     "save_dictations": True,
-    "dictations_folder": str(Path(__file__).parent.parent / "dictations"),
+    "dictations_folder": str(_DATA_DIR / "dictations"),
     "auto_paste": True,
     "sample_rate": 16000,
     "llm_cleanup": True,
@@ -16,7 +23,7 @@ DEFAULT_SETTINGS = {
     "openrouter_model": "google/gemma-3-4b-it:free",
 }
 
-CONFIG_PATH = Path(__file__).parent.parent / "config" / "settings.json"
+CONFIG_PATH = _DATA_DIR / "config" / "settings.json"
 
 
 class Config:
