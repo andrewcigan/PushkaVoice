@@ -83,6 +83,7 @@ class HotkeyManager:
         self._required_modifiers, self._required_key = parse_hotkey(hotkey_string)
         self._fired = False
         self._running = False
+        self._tap_created = False  # True once CGEventTap is live
         self._lock = threading.Lock()
 
     def start(self):
@@ -106,8 +107,14 @@ class HotkeyManager:
         except Exception as e:
             logger.error("Failed to start hotkey listener: %s", e)
 
+    @property
+    def is_tap_active(self) -> bool:
+        """True if CGEventTap was successfully created and is running."""
+        return self._tap_created
+
     def stop(self):
         self._running = False
+        self._tap_created = False
         if self._run_loop is not None:
             try:
                 import Quartz
@@ -185,9 +192,10 @@ class HotkeyManager:
 
             # Retry CGEventTapCreate with backoff — macOS may need time to
             # propagate Accessibility permission after AXIsProcessTrusted()
-            # already returns True.
-            max_retries = 5
-            retry_delays = [0, 1, 2, 3, 5]  # seconds
+            # already returns True.  After an app update the process often
+            # needs a full restart, but we try hard before giving up.
+            max_retries = 8
+            retry_delays = [0, 1, 2, 3, 5, 5, 5, 5]  # ~26 s total
             self._tap = None
             for attempt in range(max_retries):
                 if not self._running:
@@ -220,10 +228,11 @@ class HotkeyManager:
                 )
 
             if self._tap is None:
+                self._tap_created = False
                 logger.error(
                     "Failed to create CGEventTap after %d attempts — "
                     "Accessibility permission required. "
-                    "Hotkeys will not work until permission is granted.",
+                    "Hotkeys will not work until the app is restarted.",
                     max_retries,
                 )
                 return
@@ -238,6 +247,7 @@ class HotkeyManager:
                 Quartz.kCFRunLoopDefaultMode,
             )
             Quartz.CGEventTapEnable(self._tap, True)
+            self._tap_created = True
 
             logger.info("CGEventTap created and running")
 

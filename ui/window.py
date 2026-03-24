@@ -359,6 +359,7 @@ class Api:
         """Check if Accessibility permission is granted (non-blocking).
 
         Also restarts the hotkey listener once when permission is newly detected.
+        Returns granted (TCC ok) and hotkey_active (CGEventTap alive).
         """
         granted = is_accessibility_granted()
         logger.debug(f"Accessibility check: granted={granted}")
@@ -369,7 +370,9 @@ class Api:
             self._hotkey_mgr.restart()
         elif not granted:
             self._accessibility_was_granted = False
-        return {"granted": granted}
+
+        hotkey_active = bool(self._hotkey_mgr and self._hotkey_mgr.is_tap_active)
+        return {"granted": granted, "hotkey_active": hotkey_active}
 
     def request_accessibility(self):
         """Prompt user for Accessibility permission (opens System Settings)."""

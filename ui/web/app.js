@@ -622,11 +622,16 @@ accessibilityRestartBtn.addEventListener('click', async () => {
   accessibilityRestartBtn.disabled = true;
   try {
     await pywebview.api.restart_hotkey();
-    // Check if it worked now
+    // Wait a moment for CGEventTap creation attempts
+    await new Promise(r => setTimeout(r, 3000));
     const result = await pywebview.api.check_accessibility();
-    if (result && result.granted) {
+    if (result && result.granted && result.hotkey_active) {
       accessibilityBanner.classList.add('hidden');
       showPopup('Hotkeys activated!');
+    } else if (result && result.granted && !result.hotkey_active) {
+      showAccessibilityStatus(
+        'Permission granted but hotkeys still not working. Try: remove PushkaVoice from Accessibility list, re-add it, enable the toggle, then restart the app.', false
+      );
     } else {
       showAccessibilityStatus(
         'Still no permission. Try "Fix After Update" or restart the app.', false
@@ -645,11 +650,17 @@ function startAccessibilityPoll() {
   accessibilityPollInterval = setInterval(async () => {
     try {
       const result = await pywebview.api.check_accessibility();
-      if (result && result.granted) {
+      if (result && result.granted && result.hotkey_active) {
         accessibilityBanner.classList.add('hidden');
         clearInterval(accessibilityPollInterval);
         accessibilityPollInterval = null;
-        console.log('Accessibility granted, banner hidden');
+        console.log('Accessibility granted and hotkeys active, banner hidden');
+        showPopup('Hotkeys activated!');
+      } else if (result && result.granted && !result.hotkey_active) {
+        // Permission OK but CGEventTap failed — need app restart
+        showAccessibilityStatus(
+          'Permission granted! Restart the app for hotkeys to work.', false
+        );
       }
     } catch (e) { console.error('accessibility poll error:', e); }
   }, 2000);
@@ -666,6 +677,14 @@ async function checkAccessibility() {
       // Show the fix button right away — users who updated will need it
       accessibilityResetBtn.classList.remove('hidden');
       startAccessibilityPoll();
+    } else if (result && result.granted && !result.hotkey_active) {
+      // Permission OK but CGEventTap didn't create — show banner with restart hint
+      accessibilityBanner.classList.remove('hidden');
+      accessibilityRestartBtn.classList.remove('hidden');
+      accessibilityResetBtn.classList.remove('hidden');
+      showAccessibilityStatus(
+        'Permission granted but hotkeys not active. Try "Restart Hotkeys" or restart the app.', false
+      );
     } else {
       accessibilityBanner.classList.add('hidden');
     }
