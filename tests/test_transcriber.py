@@ -178,7 +178,8 @@ class TestTranscriberRetryLoad:
         t.retry_load()
         # Check that state was cleared before async load
         assert t._download_progress == 0
-        assert t._speed_samples == []
+        assert t._downloaded_mb == 0.0
+        assert t._elapsed_seconds == 0
 
 
 class TestTranscriberWaitUntilReady:

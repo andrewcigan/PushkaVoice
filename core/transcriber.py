@@ -183,6 +183,10 @@ class Transcriber:
 
         try:
             import gigaam
+            # Patch gigaam to not require ffmpeg binary
+            from core.audio_compat import patch_gigaam
+            patch_gigaam()
+
             logger.info(f"Loading GigaAM '{MODEL_NAME}' model...")
             if model_cached:
                 self._status = "Loading model into memory..."

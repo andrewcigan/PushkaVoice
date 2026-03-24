@@ -1,87 +1,70 @@
-"""Tests for utils/accessibility.py."""
+"""Tests for utils/accessibility.py (ctypes-based implementation)."""
 import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from utils.accessibility import is_accessibility_granted, prompt_accessibility
+
 
 class TestIsAccessibilityGranted:
     def test_returns_true_on_non_darwin(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "linux")
-        from utils.accessibility import is_accessibility_granted
         assert is_accessibility_granted() is True
 
-    @patch.dict(sys.modules, {"ApplicationServices": MagicMock()})
-    def test_returns_true_when_trusted(self, monkeypatch):
+    def test_returns_true_on_darwin_when_lib_not_found(self, monkeypatch):
+        """If ApplicationServices library can't be loaded, assume OK."""
         monkeypatch.setattr(sys, "platform", "darwin")
-        mock_as = sys.modules["ApplicationServices"]
-        mock_as.AXIsProcessTrusted.return_value = True
+        with patch("utils.accessibility._get_appservices", return_value=None):
+            assert is_accessibility_granted() is True
 
-        # Force reimport
-        if "utils.accessibility" in sys.modules:
-            del sys.modules["utils.accessibility"]
-        from utils.accessibility import is_accessibility_granted
-        assert is_accessibility_granted() is True
-
-    @patch.dict(sys.modules, {"ApplicationServices": MagicMock()})
-    def test_returns_false_when_not_trusted(self, monkeypatch):
+    def test_returns_true_when_ax_returns_true(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "darwin")
-        mock_as = sys.modules["ApplicationServices"]
-        mock_as.AXIsProcessTrusted.return_value = False
+        mock_lib = MagicMock()
+        mock_lib.AXIsProcessTrusted.return_value = True
+        with patch("utils.accessibility._get_appservices", return_value=mock_lib):
+            assert is_accessibility_granted() is True
 
-        if "utils.accessibility" in sys.modules:
-            del sys.modules["utils.accessibility"]
-        from utils.accessibility import is_accessibility_granted
-        assert is_accessibility_granted() is False
-
-    def test_returns_true_when_check_raises(self, monkeypatch):
-        """If ApplicationServices raises, treat as OK (can't check)."""
+    def test_returns_false_when_ax_returns_false(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "darwin")
-        from utils.accessibility import is_accessibility_granted
+        mock_lib = MagicMock()
+        mock_lib.AXIsProcessTrusted.return_value = False
+        with patch("utils.accessibility._get_appservices", return_value=mock_lib):
+            assert is_accessibility_granted() is False
 
-        with patch("utils.accessibility.AS", create=True) as mock_mod:
-            # Simulate import working but call failing
-            pass
-
-        # Patch the import inside the function to raise
-        with patch.dict(sys.modules, {"ApplicationServices": MagicMock()}) as m:
-            mock_as = sys.modules["ApplicationServices"]
-            mock_as.AXIsProcessTrusted.side_effect = Exception("no entitlement")
+    def test_returns_true_on_exception(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "darwin")
+        mock_lib = MagicMock()
+        mock_lib.AXIsProcessTrusted.side_effect = OSError("no framework")
+        with patch("utils.accessibility._get_appservices", return_value=mock_lib):
             assert is_accessibility_granted() is True
 
 
 class TestPromptAccessibility:
     def test_returns_true_on_non_darwin(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "linux")
-        from utils.accessibility import prompt_accessibility
         assert prompt_accessibility() is True
 
-    @patch.dict(sys.modules, {
-        "ApplicationServices": MagicMock(),
-        "CoreFoundation": MagicMock(),
-    })
-    def test_opens_settings_when_not_trusted(self, monkeypatch):
+    def test_returns_true_when_lib_not_found(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "darwin")
-        mock_as = sys.modules["ApplicationServices"]
-        mock_as.AXIsProcessTrustedWithOptions.return_value = False
+        with patch("utils.accessibility._get_appservices", return_value=None):
+            assert prompt_accessibility() is True
 
-        if "utils.accessibility" in sys.modules:
-            del sys.modules["utils.accessibility"]
-        from utils.accessibility import prompt_accessibility
-        result = prompt_accessibility()
-        assert result is False
-        mock_as.AXIsProcessTrustedWithOptions.assert_called_once()
-
-    @patch.dict(sys.modules, {
-        "ApplicationServices": MagicMock(),
-        "CoreFoundation": MagicMock(),
-    })
-    def test_returns_true_when_already_trusted(self, monkeypatch):
+    def test_returns_true_when_cf_not_found(self, monkeypatch):
         monkeypatch.setattr(sys, "platform", "darwin")
-        mock_as = sys.modules["ApplicationServices"]
-        mock_as.AXIsProcessTrustedWithOptions.return_value = True
+        mock_lib = MagicMock()
+        with patch("utils.accessibility._get_appservices", return_value=mock_lib), \
+             patch("utils.accessibility._get_corefoundation", return_value=None):
+            assert prompt_accessibility() is True
 
-        if "utils.accessibility" in sys.modules:
-            del sys.modules["utils.accessibility"]
-        from utils.accessibility import prompt_accessibility
-        assert prompt_accessibility() is True
+    def test_returns_true_on_exception(self, monkeypatch):
+        """Any exception during the ctypes dance should return True (assume OK)."""
+        monkeypatch.setattr(sys, "platform", "darwin")
+        mock_lib = MagicMock()
+        mock_cf = MagicMock()
+        # Make c_void_p.in_dll raise
+        with patch("utils.accessibility._get_appservices", return_value=mock_lib), \
+             patch("utils.accessibility._get_corefoundation", return_value=mock_cf), \
+             patch("ctypes.c_void_p") as mock_cvp:
+            mock_cvp.in_dll.side_effect = ValueError("symbol not found")
+            assert prompt_accessibility() is True
