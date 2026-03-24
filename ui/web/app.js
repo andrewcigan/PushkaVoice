@@ -521,6 +521,8 @@ let accessibilityPollInterval = null;
 
 accessibilityGrantBtn.addEventListener('click', async () => {
   console.log('Grant Access clicked');
+  accessibilityGrantBtn.disabled = true;
+  accessibilityGrantBtn.textContent = 'Check System Settings...';
   try {
     const result = await pywebview.api.request_accessibility();
     console.log('request_accessibility result:', result);
@@ -528,9 +530,16 @@ accessibilityGrantBtn.addEventListener('click', async () => {
       accessibilityBanner.classList.add('hidden');
     } else {
       startAccessibilityPoll();
+      // Re-enable after 5s so user can retry
+      setTimeout(() => {
+        accessibilityGrantBtn.disabled = false;
+        accessibilityGrantBtn.textContent = 'Grant Access';
+      }, 5000);
     }
   } catch (e) {
     console.error('request_accessibility error:', e);
+    accessibilityGrantBtn.disabled = false;
+    accessibilityGrantBtn.textContent = 'Grant Access';
   }
 });
 

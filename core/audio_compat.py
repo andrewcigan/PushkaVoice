@@ -83,20 +83,50 @@ def load_audio_no_ffmpeg(audio_path: str, sample_rate: int = 16000) -> torch.Ten
 
 
 def patch_gigaam():
-    """Replace gigaam.preprocess.load_audio with our ffmpeg-free version."""
+    """Replace gigaam.preprocess.load_audio with our ffmpeg-free version.
+
+    GigaAM modules may import load_audio via 'from .preprocess import load_audio',
+    copying the function reference into their own namespace. We must patch
+    every module that holds a reference to the original function.
+    """
     global _patched
     if _patched:
         return
 
+    import sys as _sys
+    patched_count = 0
+
+    # Patch gigaam.preprocess.load_audio (the source)
     try:
-        # Use sys.modules lookup to handle both real packages and bundled environments
-        import sys as _sys
         preprocess = _sys.modules.get("gigaam.preprocess")
         if preprocess is None:
             import gigaam.preprocess
             preprocess = gigaam.preprocess
-        preprocess.load_audio = load_audio_no_ffmpeg
-        logger.info("Patched gigaam.preprocess.load_audio (no ffmpeg needed)")
-        _patched = True
+        if hasattr(preprocess, "load_audio"):
+            preprocess.load_audio = load_audio_no_ffmpeg
+            patched_count += 1
     except (ImportError, AttributeError) as e:
         logger.warning(f"Could not patch gigaam.preprocess: {e}")
+
+    # Patch any other gigaam module that imported load_audio
+    # (e.g. gigaam.model does 'from .preprocess import load_audio')
+    for mod_name, mod in list(_sys.modules.items()):
+        if not mod_name.startswith("gigaam.") or mod is None:
+            continue
+        if mod_name == "gigaam.preprocess":
+            continue  # already patched above
+        try:
+            if hasattr(mod, "load_audio") and callable(getattr(mod, "load_audio", None)):
+                current = getattr(mod, "load_audio")
+                if current is not load_audio_no_ffmpeg:
+                    setattr(mod, "load_audio", load_audio_no_ffmpeg)
+                    patched_count += 1
+                    logger.info(f"Patched {mod_name}.load_audio")
+        except Exception:
+            pass
+
+    if patched_count > 0:
+        logger.info(f"Patched load_audio in {patched_count} gigaam module(s) (no ffmpeg needed)")
+        _patched = True
+    else:
+        logger.warning("Could not find any gigaam modules to patch")

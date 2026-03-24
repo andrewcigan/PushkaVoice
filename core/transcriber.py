@@ -183,14 +183,17 @@ class Transcriber:
 
         try:
             import gigaam
-            # Patch gigaam to not require ffmpeg binary
-            from core.audio_compat import patch_gigaam
-            patch_gigaam()
-
             logger.info(f"Loading GigaAM '{MODEL_NAME}' model...")
             if model_cached:
                 self._status = "Loading model into memory..."
             self._model = gigaam.load_model(MODEL_NAME)
+
+            # Patch gigaam AFTER load_model so all submodules are imported.
+            # gigaam.model does 'from .preprocess import load_audio' during
+            # load_model(), so we must patch after that import has happened.
+            from core.audio_compat import patch_gigaam
+            patch_gigaam()
+
             self._status = "Ready"
             self._error = None
             logger.info("Model loaded successfully")
