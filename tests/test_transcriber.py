@@ -463,43 +463,47 @@ class TestTranscriberLongformFallback:
     def test_falls_back_on_import_error(self, mock_dur, mock_gigaam):
         mock_model = MagicMock()
         mock_model.transcribe_longform.side_effect = ImportError("No module named 'pyannote'")
-        mock_model.transcribe.return_value = "fallback result"
+        mock_model.transcribe.return_value = "chunk result"
         mock_gigaam.load_model.return_value = mock_model
 
         from core.transcriber import Transcriber
         t = Transcriber()
         t.load_model()
-        result = t.transcribe("test.wav")
+        with patch.object(t, '_split_wav', return_value=[]) as mock_split:
+            # No chunks = empty result, but let's test with a real chunk
+            pass
 
+        # Test via _transcribe_chunked with mocked split
+        t2 = Transcriber()
+        t2.load_model()
+        with patch.object(t2, '_transcribe_chunked', return_value="fallback result"):
+            result = t2.transcribe("test.wav")
         assert result == "fallback result"
-        mock_model.transcribe.assert_called_once_with("test.wav")
 
     @patch("core.transcriber.get_wav_duration", return_value=30.0)
     def test_falls_back_on_module_not_found(self, mock_dur, mock_gigaam):
         mock_model = MagicMock()
         mock_model.transcribe_longform.side_effect = ModuleNotFoundError("No module named 'pyannote'")
-        mock_model.transcribe.return_value = "fallback result"
         mock_gigaam.load_model.return_value = mock_model
 
         from core.transcriber import Transcriber
         t = Transcriber()
         t.load_model()
-        result = t.transcribe("test.wav")
-
+        with patch.object(t, '_transcribe_chunked', return_value="fallback result"):
+            result = t.transcribe("test.wav")
         assert result == "fallback result"
 
     @patch("core.transcriber.get_wav_duration", return_value=30.0)
     def test_falls_back_on_ffmpeg_not_found(self, mock_dur, mock_gigaam):
         mock_model = MagicMock()
         mock_model.transcribe_longform.side_effect = FileNotFoundError("[Errno 2] No such file or directory: 'ffmpeg'")
-        mock_model.transcribe.return_value = "fallback result"
         mock_gigaam.load_model.return_value = mock_model
 
         from core.transcriber import Transcriber
         t = Transcriber()
         t.load_model()
-        result = t.transcribe("test.wav")
-
+        with patch.object(t, '_transcribe_chunked', return_value="fallback result"):
+            result = t.transcribe("test.wav")
         assert result == "fallback result"
 
     @patch("core.transcriber.get_wav_duration", return_value=30.0)
@@ -515,6 +519,49 @@ class TestTranscriberLongformFallback:
 
         assert "long text" in result
         mock_model.transcribe.assert_not_called()
+
+
+class TestExtractText:
+    """Test _extract_text handles various gigaam return types."""
+
+    def test_str_result(self, mock_gigaam):
+        from core.transcriber import Transcriber
+        assert Transcriber._extract_text("hello") == "hello"
+
+    def test_tuple_result(self, mock_gigaam):
+        from core.transcriber import Transcriber
+        assert Transcriber._extract_text(("hello", [1, 2, 3])) == "hello"
+
+    def test_triple_tuple_result(self, mock_gigaam):
+        from core.transcriber import Transcriber
+        assert Transcriber._extract_text(("hello", [1, 2], [0.1, 0.5])) == "hello"
+
+    def test_list_result(self, mock_gigaam):
+        from core.transcriber import Transcriber
+        assert Transcriber._extract_text(["hello", "world"]) == "hello world"
+
+
+class TestTranscriberChunked:
+    """Test chunked transcription for long files."""
+
+    @patch("core.transcriber.get_wav_duration", return_value=50.0)
+    def test_chunked_transcription(self, mock_dur, mock_gigaam):
+        mock_model = MagicMock()
+        mock_model.transcribe_longform.side_effect = ImportError("No pyannote")
+        mock_model.transcribe.side_effect = ["chunk one", "chunk two", "chunk three"]
+        mock_gigaam.load_model.return_value = mock_model
+
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+
+        fake_chunks = ["/tmp/c0.wav", "/tmp/c1.wav", "/tmp/c2.wav"]
+        with patch.object(t, '_split_wav', return_value=fake_chunks), \
+             patch("os.unlink"):
+            result = t.transcribe("long.wav")
+
+        assert result == "chunk one chunk two chunk three"
+        assert mock_model.transcribe.call_count == 3
 
 
 class TestSSLCertFix:

@@ -278,13 +278,58 @@ class Transcriber:
         self._ready_event.wait(timeout=timeout)
         return self.is_ready
 
+    @staticmethod
+    def _extract_text(result) -> str:
+        """Extract text from gigaam transcribe() result, handling API variations.
+
+        Different gigaam versions return:
+        - str: just the text
+        - tuple: (text, tokens) or (text, tokens, timestamps)
+        - list: list of segments
+        """
+        if isinstance(result, str):
+            return result
+        if isinstance(result, tuple):
+            return str(result[0])
+        if isinstance(result, list):
+            return " ".join(str(r) for r in result)
+        return str(result)
+
     def _transcribe_short(self, audio_path: str) -> str:
         """Transcribe a short audio file (<25s) using standard method."""
         logger.info("Using transcribe (short)...")
         result = self._model.transcribe(audio_path)
-        if isinstance(result, list):
-            return " ".join(str(r) for r in result)
-        return str(result)
+        return self._extract_text(result)
+
+    def _split_wav(self, audio_path: str, chunk_seconds: float = 20.0) -> list[str]:
+        """Split a WAV file into chunks of chunk_seconds length.
+
+        Returns list of temporary chunk file paths.
+        """
+        import wave
+        import tempfile
+
+        chunks = []
+        with wave.open(audio_path, "rb") as wf:
+            params = wf.getparams()
+            sr = wf.getframerate()
+            total_frames = wf.getnframes()
+            chunk_frames = int(chunk_seconds * sr)
+
+            idx = 0
+            while wf.tell() < total_frames:
+                frames_to_read = min(chunk_frames, total_frames - wf.tell())
+                data = wf.readframes(frames_to_read)
+
+                chunk_path = tempfile.mktemp(suffix=f"_chunk{idx}.wav")
+                with wave.open(chunk_path, "wb") as cw:
+                    cw.setparams(params)
+                    cw.writeframes(data)
+                chunks.append(chunk_path)
+                idx += 1
+
+        logger.info(f"Split audio into {len(chunks)} chunks of ~{chunk_seconds}s")
+        return chunks
 
     def _transcribe_long(self, audio_path: str) -> str:
         """Transcribe a long audio file (>25s) using longform method with fallback."""
@@ -301,14 +346,40 @@ class Transcriber:
                     else:
                         texts.append(str(segment))
                 return " ".join(texts)
-            return str(result)
-        except (ImportError, ModuleNotFoundError) as e:
-            logger.warning(f"Longform transcription unavailable ({e}), falling back to standard transcribe")
-            return self._transcribe_short(audio_path)
+            return self._extract_text(result)
+        except (ImportError, ModuleNotFoundError, ValueError) as e:
+            logger.warning(f"Longform transcription unavailable ({e}), falling back to chunked transcribe")
+            return self._transcribe_chunked(audio_path)
         except FileNotFoundError as e:
-            # ffmpeg or other binary not found
-            logger.warning(f"Longform transcription failed ({e}), falling back to standard transcribe")
-            return self._transcribe_short(audio_path)
+            logger.warning(f"Longform transcription failed ({e}), falling back to chunked transcribe")
+            return self._transcribe_chunked(audio_path)
+
+    def _transcribe_chunked(self, audio_path: str) -> str:
+        """Split long audio into chunks and transcribe each one."""
+        import os
+
+        chunks = self._split_wav(audio_path)
+        texts = []
+        try:
+            for i, chunk_path in enumerate(chunks):
+                logger.info(f"Transcribing chunk {i + 1}/{len(chunks)}: {chunk_path}")
+                try:
+                    result = self._model.transcribe(chunk_path)
+                    text = self._extract_text(result).strip()
+                    if text:
+                        texts.append(text)
+                except Exception as e:
+                    logger.warning(f"Chunk {i + 1} failed: {e}")
+        finally:
+            for chunk_path in chunks:
+                try:
+                    os.unlink(chunk_path)
+                except OSError:
+                    pass
+
+        combined = " ".join(texts)
+        logger.info(f"Chunked transcription: {len(chunks)} chunks -> {len(combined)} chars")
+        return combined
 
     def transcribe(self, audio_path: str) -> str:
         if not self.is_ready:
