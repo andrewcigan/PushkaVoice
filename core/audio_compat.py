@@ -82,12 +82,16 @@ def load_audio_no_ffmpeg(audio_path: str, sample_rate: int = 16000) -> torch.Ten
     return wav
 
 
-def patch_gigaam():
-    """Replace gigaam.preprocess.load_audio with our ffmpeg-free version.
+def patch_gigaam(model=None):
+    """Replace gigaam's load_audio with our ffmpeg-free version.
 
-    GigaAM modules may import load_audio via 'from .preprocess import load_audio',
-    copying the function reference into their own namespace. We must patch
-    every module that holds a reference to the original function.
+    GigaAM uses ffmpeg subprocess to decode audio files. We replace the
+    load_audio function at every level where it might be referenced:
+    1. gigaam.preprocess module (the source definition)
+    2. Any gigaam.* module that imported it (e.g. gigaam.model, gigaam.vad_utils)
+    3. The model object's prepare_wav method (if model is provided)
+
+    This must be called AFTER gigaam.load_model() so all submodules are loaded.
     """
     global _patched
     if _patched:
@@ -96,25 +100,27 @@ def patch_gigaam():
     import sys as _sys
     patched_count = 0
 
-    # Patch gigaam.preprocess.load_audio (the source)
+    # 1. Patch gigaam.preprocess.load_audio (the source)
+    original_load_audio = None
     try:
         preprocess = _sys.modules.get("gigaam.preprocess")
         if preprocess is None:
             import gigaam.preprocess
             preprocess = gigaam.preprocess
         if hasattr(preprocess, "load_audio"):
+            original_load_audio = preprocess.load_audio
             preprocess.load_audio = load_audio_no_ffmpeg
             patched_count += 1
+            logger.info("Patched gigaam.preprocess.load_audio")
     except (ImportError, AttributeError) as e:
         logger.warning(f"Could not patch gigaam.preprocess: {e}")
 
-    # Patch any other gigaam module that imported load_audio
-    # (e.g. gigaam.model does 'from .preprocess import load_audio')
+    # 2. Patch any other gigaam module that imported load_audio
     for mod_name, mod in list(_sys.modules.items()):
         if not mod_name.startswith("gigaam.") or mod is None:
             continue
         if mod_name == "gigaam.preprocess":
-            continue  # already patched above
+            continue
         try:
             if hasattr(mod, "load_audio") and callable(getattr(mod, "load_audio", None)):
                 current = getattr(mod, "load_audio")
@@ -125,8 +131,32 @@ def patch_gigaam():
         except Exception:
             pass
 
+    # 3. Monkey-patch the model's prepare_wav to use our load_audio
+    if model is not None:
+        try:
+            import types
+
+            original_prepare_wav = model.prepare_wav
+
+            def patched_prepare_wav(audio_path, *args, **kwargs):
+                audio = load_audio_no_ffmpeg(audio_path)
+                return audio
+
+            # Bind as method if original was a method
+            if hasattr(original_prepare_wav, '__self__'):
+                model.prepare_wav = types.MethodType(
+                    lambda self, audio_path, *a, **kw: load_audio_no_ffmpeg(audio_path),
+                    model
+                )
+            else:
+                model.prepare_wav = patched_prepare_wav
+            patched_count += 1
+            logger.info("Patched model.prepare_wav directly")
+        except Exception as e:
+            logger.warning(f"Could not patch model.prepare_wav: {e}")
+
     if patched_count > 0:
-        logger.info(f"Patched load_audio in {patched_count} gigaam module(s) (no ffmpeg needed)")
+        logger.info(f"Patched load_audio in {patched_count} location(s) (no ffmpeg needed)")
         _patched = True
     else:
         logger.warning("Could not find any gigaam modules to patch")

@@ -189,10 +189,9 @@ class Transcriber:
             self._model = gigaam.load_model(MODEL_NAME)
 
             # Patch gigaam AFTER load_model so all submodules are imported.
-            # gigaam.model does 'from .preprocess import load_audio' during
-            # load_model(), so we must patch after that import has happened.
+            # Pass the model object so we can also patch prepare_wav directly.
             from core.audio_compat import patch_gigaam
-            patch_gigaam()
+            patch_gigaam(model=self._model)
 
             self._status = "Ready"
             self._error = None
