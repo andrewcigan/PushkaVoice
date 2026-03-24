@@ -5,8 +5,14 @@ This module replaces it with a torchaudio-based implementation that works
 without ffmpeg installed on the system.
 
 Must be called AFTER gigaam is imported but BEFORE any transcription.
+
+Strategy: we patch subprocess.run so that when gigaam tries to call ffmpeg,
+we intercept it and decode the audio ourselves. This is more robust than
+trying to patch individual functions in gigaam's internals.
 """
 import logging
+import subprocess
+import wave as wave_mod
 
 import numpy as np
 import torch
@@ -16,29 +22,59 @@ logger = logging.getLogger(__name__)
 _patched = False
 
 
-def load_audio_no_ffmpeg(audio_path: str, sample_rate: int = 16000) -> torch.Tensor:
-    """Load audio file using torchaudio instead of ffmpeg subprocess.
+def _decode_audio_without_ffmpeg(cmd, **kwargs):
+    """Intercept ffmpeg subprocess calls and decode audio using Python.
 
-    Falls back to scipy/wave for WAV files if torchaudio also fails.
+    GigaAM calls ffmpeg like:
+        ffmpeg -nostdin -threads 0 -i <path> -f s16le -ac 1 -acodec pcm_s16le -ar 16000 -
+
+    We parse the command, read the WAV file, and return the raw PCM bytes
+    that ffmpeg would have produced.
     """
-    # Try torchaudio first (handles many formats without ffmpeg)
+    # Parse the ffmpeg command to extract input file and target sample rate
+    if not isinstance(cmd, (list, tuple)) or len(cmd) < 2:
+        raise FileNotFoundError("Not an ffmpeg command")
+
+    if cmd[0] != "ffmpeg":
+        raise FileNotFoundError(f"Not ffmpeg: {cmd[0]}")
+
+    # Extract -i <input_file> and -ar <sample_rate>
+    input_file = None
+    target_sr = 16000
+    for i, arg in enumerate(cmd):
+        if arg == "-i" and i + 1 < len(cmd):
+            input_file = cmd[i + 1]
+        elif arg == "-ar" and i + 1 < len(cmd):
+            try:
+                target_sr = int(cmd[i + 1])
+            except ValueError:
+                pass
+
+    if input_file is None:
+        raise FileNotFoundError("Could not parse ffmpeg command: no input file")
+
+    logger.debug(f"Intercepted ffmpeg call: input={input_file}, target_sr={target_sr}")
+
+    # Try torchaudio first
     try:
         import torchaudio
-        wav, sr = torchaudio.load(audio_path)
-        # Convert to mono if stereo
+        wav, sr = torchaudio.load(input_file)
         if wav.shape[0] > 1:
             wav = wav.mean(dim=0, keepdim=True)
-        # Resample if needed
-        if sr != sample_rate:
-            resampler = torchaudio.transforms.Resample(sr, sample_rate)
+        if sr != target_sr:
+            resampler = torchaudio.transforms.Resample(sr, target_sr)
             wav = resampler(wav)
-        return wav[0]  # Remove channel dim → 1D tensor
+        # Convert to int16 PCM (s16le) — what ffmpeg would output with -f s16le
+        pcm = (wav[0] * 32767).clamp(-32768, 32767).to(torch.int16)
+        raw_bytes = pcm.numpy().tobytes()
+        logger.debug(f"Decoded via torchaudio: {len(raw_bytes)} bytes, sr={target_sr}")
+        result = subprocess.CompletedProcess(cmd, 0, stdout=raw_bytes, stderr=b"")
+        return result
     except Exception as e:
-        logger.debug(f"torchaudio.load failed: {e}, trying wave module")
+        logger.debug(f"torchaudio failed: {e}, trying wave module")
 
-    # Fallback: use stdlib wave module (WAV only)
-    import wave
-    with wave.open(audio_path, "rb") as wf:
+    # Fallback: stdlib wave module (WAV files only)
+    with wave_mod.open(input_file, "rb") as wf:
         sr = wf.getframerate()
         n_frames = wf.getnframes()
         n_channels = wf.getnchannels()
@@ -54,109 +90,65 @@ def load_audio_no_ffmpeg(audio_path: str, sample_rate: int = 16000) -> torch.Ten
 
     audio = np.frombuffer(raw, dtype=dtype).astype(np.float32)
 
-    # Convert to mono
     if n_channels > 1:
         audio = audio.reshape(-1, n_channels).mean(axis=1)
 
-    # Normalize to [-1, 1]
+    # Normalize
     max_val = float(np.iinfo(dtype).max)
     audio = audio / max_val
 
-    wav = torch.from_numpy(audio)
-
     # Resample if needed
-    if sr != sample_rate:
+    if sr != target_sr:
         try:
             import torchaudio
-            resampler = torchaudio.transforms.Resample(sr, sample_rate)
-            wav = resampler(wav.unsqueeze(0))[0]
+            t = torch.from_numpy(audio).unsqueeze(0)
+            resampler = torchaudio.transforms.Resample(sr, target_sr)
+            audio = resampler(t)[0].numpy()
         except Exception:
-            # Simple linear interpolation as last resort
-            ratio = sample_rate / sr
-            n_samples = int(len(wav) * ratio)
-            indices = torch.linspace(0, len(wav) - 1, n_samples)
-            wav = torch.from_numpy(
-                np.interp(indices.numpy(), np.arange(len(wav)), wav.numpy())
-            ).float()
+            ratio = target_sr / sr
+            n_samples = int(len(audio) * ratio)
+            indices = np.linspace(0, len(audio) - 1, n_samples)
+            audio = np.interp(indices, np.arange(len(audio)), audio)
 
-    return wav
+    # Convert to int16 PCM bytes (s16le format)
+    pcm = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
+    raw_bytes = pcm.tobytes()
+
+    logger.debug(f"Decoded via wave module: {len(raw_bytes)} bytes, sr={target_sr}")
+    result = subprocess.CompletedProcess(cmd, 0, stdout=raw_bytes, stderr=b"")
+    return result
+
+
+# Keep a reference to the real subprocess.run
+_original_subprocess_run = subprocess.run
+
+
+def _patched_subprocess_run(cmd, *args, **kwargs):
+    """Wrapper around subprocess.run that intercepts ffmpeg calls."""
+    if isinstance(cmd, (list, tuple)) and len(cmd) > 0 and cmd[0] == "ffmpeg":
+        try:
+            return _decode_audio_without_ffmpeg(cmd, **kwargs)
+        except Exception as e:
+            logger.warning(f"ffmpeg interception failed: {e}, trying original")
+    return _original_subprocess_run(cmd, *args, **kwargs)
 
 
 def patch_gigaam(model=None):
-    """Replace gigaam's load_audio with our ffmpeg-free version.
+    """Patch subprocess.run to intercept ffmpeg calls from GigaAM.
 
-    GigaAM uses ffmpeg subprocess to decode audio files. We replace the
-    load_audio function at every level where it might be referenced:
-    1. gigaam.preprocess module (the source definition)
-    2. Any gigaam.* module that imported it (e.g. gigaam.model, gigaam.vad_utils)
-    3. The model object's prepare_wav method (if model is provided)
+    This is the nuclear option — instead of trying to patch individual
+    functions in gigaam's internals (which fail due to frozen imports,
+    closures, and copied references), we intercept at the subprocess level.
 
-    This must be called AFTER gigaam.load_model() so all submodules are loaded.
+    When GigaAM calls subprocess.run(["ffmpeg", ...]), we decode the audio
+    ourselves using torchaudio or stdlib wave module.
     """
     global _patched
     if _patched:
         return
 
-    import sys as _sys
-    patched_count = 0
+    subprocess.run = _patched_subprocess_run
+    logger.info("Patched subprocess.run to intercept ffmpeg calls (no ffmpeg needed)")
+    _patched = True
 
-    # 1. Patch gigaam.preprocess.load_audio (the source)
-    original_load_audio = None
-    try:
-        preprocess = _sys.modules.get("gigaam.preprocess")
-        if preprocess is None:
-            import gigaam.preprocess
-            preprocess = gigaam.preprocess
-        if hasattr(preprocess, "load_audio"):
-            original_load_audio = preprocess.load_audio
-            preprocess.load_audio = load_audio_no_ffmpeg
-            patched_count += 1
-            logger.info("Patched gigaam.preprocess.load_audio")
-    except (ImportError, AttributeError) as e:
-        logger.warning(f"Could not patch gigaam.preprocess: {e}")
 
-    # 2. Patch any other gigaam module that imported load_audio
-    for mod_name, mod in list(_sys.modules.items()):
-        if not mod_name.startswith("gigaam.") or mod is None:
-            continue
-        if mod_name == "gigaam.preprocess":
-            continue
-        try:
-            if hasattr(mod, "load_audio") and callable(getattr(mod, "load_audio", None)):
-                current = getattr(mod, "load_audio")
-                if current is not load_audio_no_ffmpeg:
-                    setattr(mod, "load_audio", load_audio_no_ffmpeg)
-                    patched_count += 1
-                    logger.info(f"Patched {mod_name}.load_audio")
-        except Exception:
-            pass
-
-    # 3. Monkey-patch the model's prepare_wav to use our load_audio
-    if model is not None:
-        try:
-            import types
-
-            original_prepare_wav = model.prepare_wav
-
-            def patched_prepare_wav(audio_path, *args, **kwargs):
-                audio = load_audio_no_ffmpeg(audio_path)
-                return audio
-
-            # Bind as method if original was a method
-            if hasattr(original_prepare_wav, '__self__'):
-                model.prepare_wav = types.MethodType(
-                    lambda self, audio_path, *a, **kw: load_audio_no_ffmpeg(audio_path),
-                    model
-                )
-            else:
-                model.prepare_wav = patched_prepare_wav
-            patched_count += 1
-            logger.info("Patched model.prepare_wav directly")
-        except Exception as e:
-            logger.warning(f"Could not patch model.prepare_wav: {e}")
-
-    if patched_count > 0:
-        logger.info(f"Patched load_audio in {patched_count} location(s) (no ffmpeg needed)")
-        _patched = True
-    else:
-        logger.warning("Could not find any gigaam modules to patch")

@@ -182,16 +182,16 @@ class Transcriber:
             self._status = "Loading model into memory..."
 
         try:
+            # Patch subprocess.run BEFORE loading gigaam so ffmpeg calls
+            # are intercepted from the very first import
+            from core.audio_compat import patch_gigaam
+            patch_gigaam()
+
             import gigaam
             logger.info(f"Loading GigaAM '{MODEL_NAME}' model...")
             if model_cached:
                 self._status = "Loading model into memory..."
             self._model = gigaam.load_model(MODEL_NAME)
-
-            # Patch gigaam AFTER load_model so all submodules are imported.
-            # Pass the model object so we can also patch prepare_wav directly.
-            from core.audio_compat import patch_gigaam
-            patch_gigaam(model=self._model)
 
             self._status = "Ready"
             self._error = None
