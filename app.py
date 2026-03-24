@@ -240,25 +240,36 @@ def main():
     statusbar.setup()
     api.set_statusbar(statusbar)
 
-    # Check Accessibility permission.
-    # After an app update the code signature changes, making old TCC entries
-    # stale.  Detect this by comparing the stored build number with the
-    # current one and automatically reset + re-prompt when they differ.
-    from utils.accessibility import prompt_accessibility, is_accessibility_granted, reset_accessibility
+    # Check permissions: Accessibility (for auto-paste) and Input Monitoring
+    # (for CGEventTap hotkeys).  After an app update the code signature
+    # changes, making old TCC entries stale.  Detect build changes and
+    # automatically reset + re-prompt both permission types.
+    from utils.accessibility import (
+        is_accessibility_granted, prompt_accessibility, reset_all_permissions,
+        is_input_monitoring_granted, request_input_monitoring,
+    )
     from utils.version import BUILD_NUMBER as _CURRENT_BUILD
 
     _stored_build = config.get("last_build_number", 0)
     if _CURRENT_BUILD != 0 and _stored_build != _CURRENT_BUILD:
         logger.info(
-            "Build changed (%s → %s) — resetting Accessibility TCC entries",
+            "Build changed (%s → %s) — resetting all TCC entries",
             _stored_build, _CURRENT_BUILD,
         )
-        reset_accessibility()
+        reset_all_permissions()
         config.set("last_build_number", _CURRENT_BUILD)
 
-    logger.info("Checking Accessibility before prompt: granted=%s", is_accessibility_granted())
+    # Request Accessibility (for auto-paste)
+    logger.info("Accessibility: granted=%s", is_accessibility_granted())
     prompt_accessibility()
-    logger.info("Checking Accessibility after prompt: granted=%s", is_accessibility_granted())
+
+    # Request Input Monitoring (for CGEventTap / hotkeys)
+    logger.info("Input Monitoring: granted=%s", is_input_monitoring_granted())
+    request_input_monitoring()
+    logger.info(
+        "After prompts: accessibility=%s, input_monitoring=%s",
+        is_accessibility_granted(), is_input_monitoring_granted(),
+    )
 
     # Setup hotkey
     from ui.hotkey import HotkeyManager

@@ -282,9 +282,9 @@ class Updater:
 
         # Pre-clear stale TCC entries so the new binary can get fresh permission
         try:
-            from utils.accessibility import reset_accessibility
-            logger.info("Resetting Accessibility TCC before restart...")
-            reset_accessibility()
+            from utils.accessibility import reset_all_permissions
+            logger.info("Resetting all TCC entries before restart...")
+            reset_all_permissions()
         except Exception as e:
             logger.warning("TCC reset before restart failed: %s", e)
 

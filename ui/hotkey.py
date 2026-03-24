@@ -190,10 +190,23 @@ class HotkeyManager:
                 | Quartz.CGEventMaskBit(Quartz.kCGEventKeyUp)
             )
 
+            # Check Input Monitoring permission (the actual permission
+            # CGEventTap needs — different from Accessibility!)
+            try:
+                from utils.accessibility import is_input_monitoring_granted
+                im_ok = is_input_monitoring_granted()
+                logger.info("Input Monitoring permission: %s", im_ok)
+                if not im_ok:
+                    logger.warning(
+                        "Input Monitoring NOT granted — CGEventTap will likely fail. "
+                        "Request Input Monitoring permission in System Settings → "
+                        "Privacy & Security → Input Monitoring."
+                    )
+            except Exception as e:
+                logger.debug("Could not check Input Monitoring: %s", e)
+
             # Retry CGEventTapCreate with backoff — macOS may need time to
-            # propagate Accessibility permission after AXIsProcessTrusted()
-            # already returns True.  After an app update the process often
-            # needs a full restart, but we try hard before giving up.
+            # propagate Input Monitoring permission.
             max_retries = 8
             retry_delays = [0, 1, 2, 3, 5, 5, 5, 5]  # ~26 s total
             self._tap = None

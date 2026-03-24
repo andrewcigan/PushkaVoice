@@ -13,9 +13,12 @@ from core.text_cleaner import clean_text
 from core.transcriber import Transcriber
 from utils.accessibility import (
     is_accessibility_granted,
+    is_input_monitoring_granted,
     open_accessibility_settings,
+    open_input_monitoring_settings,
     prompt_accessibility,
-    reset_accessibility,
+    request_input_monitoring,
+    reset_all_permissions,
 )
 from utils.config import Config
 from utils.updater import Updater, check_for_update
@@ -356,32 +359,41 @@ class Api:
         return {"ok": True, "path": log_path}
 
     def check_accessibility(self):
-        """Check if Accessibility permission is granted (non-blocking).
+        """Check both Accessibility and Input Monitoring permissions.
 
-        Also restarts the hotkey listener once when permission is newly detected.
-        Returns granted (TCC ok) and hotkey_active (CGEventTap alive).
+        Also restarts the hotkey listener once when Input Monitoring is newly detected.
+        Returns granted (both permissions ok) and hotkey_active (CGEventTap alive).
         """
-        granted = is_accessibility_granted()
-        logger.debug(f"Accessibility check: granted={granted}")
-        if granted and not self._accessibility_was_granted and self._hotkey_mgr:
-            # Only restart once when permission transitions from False to True
+        ax_granted = is_accessibility_granted()
+        im_granted = is_input_monitoring_granted()
+        granted = ax_granted and im_granted
+        logger.debug(f"Permission check: accessibility={ax_granted}, input_monitoring={im_granted}")
+
+        if im_granted and not self._accessibility_was_granted and self._hotkey_mgr:
+            # Input Monitoring newly granted — restart hotkey listener
             self._accessibility_was_granted = True
-            logger.info("Accessibility newly granted — restarting hotkey listener")
+            logger.info("Input Monitoring newly granted — restarting hotkey listener")
             self._hotkey_mgr.restart()
-        elif not granted:
+        elif not im_granted:
             self._accessibility_was_granted = False
 
         hotkey_active = bool(self._hotkey_mgr and self._hotkey_mgr.is_tap_active)
-        return {"granted": granted, "hotkey_active": hotkey_active}
+        return {
+            "granted": granted,
+            "accessibility": ax_granted,
+            "input_monitoring": im_granted,
+            "hotkey_active": hotkey_active,
+        }
 
     def request_accessibility(self):
-        """Prompt user for Accessibility permission (opens System Settings)."""
-        logger.info("Requesting Accessibility permission...")
-        result = prompt_accessibility()
-        logger.info(f"Accessibility prompt result: {result}")
-        if result and self._hotkey_mgr:
+        """Prompt user for both Accessibility and Input Monitoring permissions."""
+        logger.info("Requesting permissions...")
+        ax = prompt_accessibility()
+        im = request_input_monitoring()
+        logger.info(f"Permission prompt results: accessibility={ax}, input_monitoring={im}")
+        if im and self._hotkey_mgr:
             self._hotkey_mgr.restart()
-        return {"granted": result}
+        return {"granted": ax and im, "accessibility": ax, "input_monitoring": im}
 
     def restart_hotkey(self):
         """Manually restart the hotkey listener (e.g. after granting permissions)."""
@@ -391,20 +403,21 @@ class Api:
         return {"ok": True}
 
     def reset_and_request_accessibility(self):
-        """Reset stale TCC entries, then re-prompt for Accessibility.
+        """Reset stale TCC entries, then re-prompt for both permissions.
 
         Each ad-hoc signed build gets a new code signature, making old
-        Accessibility entries invalid.  This clears them and re-prompts.
+        TCC entries invalid.  This clears them and re-prompts.
         """
-        logger.info("Resetting Accessibility TCC entries...")
-        reset_ok = reset_accessibility()
+        logger.info("Resetting all TCC entries...")
+        reset_ok = reset_all_permissions()
         logger.info(f"TCC reset result: {reset_ok}")
-        # Now re-prompt — this will add a fresh entry for the current binary
-        granted = prompt_accessibility()
-        logger.info(f"Re-prompt result: granted={granted}")
-        if granted and self._hotkey_mgr:
+        # Now re-prompt — this will add fresh entries for the current binary
+        ax = prompt_accessibility()
+        im = request_input_monitoring()
+        logger.info(f"Re-prompt results: accessibility={ax}, input_monitoring={im}")
+        if im and self._hotkey_mgr:
             self._hotkey_mgr.restart()
-        return {"reset_ok": reset_ok, "granted": granted}
+        return {"reset_ok": reset_ok, "granted": ax and im}
 
     def open_accessibility_settings(self):
         """Open System Settings → Accessibility pane."""
