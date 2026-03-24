@@ -3,13 +3,21 @@
 Global hotkeys and auto-paste require the Accessibility permission.
 Uses ctypes to call the macOS C API directly, avoiding issues with
 PyInstaller-bundled PyObjC where CoreFoundation constants may be missing.
+
+When the app is rebuilt with ad-hoc signing, macOS treats it as a new app
+because the code signature changes.  Old TCC (Transparency, Consent, Control)
+entries for the same bundle ID become stale and block new ones.
+Use reset_accessibility() to clear them before re-prompting.
 """
 import ctypes
 import ctypes.util
 import logging
+import subprocess
 import sys
 
 logger = logging.getLogger(__name__)
+
+BUNDLE_ID = "com.pushkavoice.app"
 
 # Cache loaded libraries
 _appservices_lib = None
@@ -139,3 +147,46 @@ def prompt_accessibility() -> bool:
     except Exception as e:
         logger.warning("Cannot prompt Accessibility: %s", e)
         return True
+
+
+def reset_accessibility() -> bool:
+    """Clear stale Accessibility TCC entries for our bundle ID.
+
+    Each ad-hoc signed build gets a new code signature, so macOS keeps
+    old (now invalid) entries that prevent the new build from appearing
+    in System Settings.  Running `tccutil reset Accessibility <bundle_id>`
+    removes ALL entries for this bundle, allowing a fresh prompt.
+
+    Returns True if the reset succeeded.
+    """
+    if sys.platform != "darwin":
+        return True
+
+    try:
+        result = subprocess.run(
+            ["tccutil", "reset", "Accessibility", BUNDLE_ID],
+            capture_output=True, text=True, timeout=10,
+        )
+        logger.info(
+            "tccutil reset Accessibility %s → returncode=%d, stdout=%r, stderr=%r",
+            BUNDLE_ID, result.returncode, result.stdout.strip(), result.stderr.strip(),
+        )
+        return result.returncode == 0
+    except Exception as e:
+        logger.warning("tccutil reset failed: %s", e)
+        return False
+
+
+def open_accessibility_settings():
+    """Open System Settings directly to the Accessibility pane."""
+    if sys.platform != "darwin":
+        return
+
+    try:
+        subprocess.Popen([
+            "open",
+            "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
+        ])
+        logger.info("Opened System Settings → Accessibility")
+    except Exception as e:
+        logger.warning("Cannot open System Settings: %s", e)

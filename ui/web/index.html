@@ -96,14 +96,19 @@
       <span class="accessibility-text">⚠ Hotkeys and auto-paste require Accessibility permission</span>
       <div class="accessibility-buttons">
         <button id="accessibility-grant-btn" class="btn-small btn-accent">Grant Access</button>
+        <button id="accessibility-reset-btn" class="btn-small btn-warning hidden">Fix After Update</button>
         <button id="accessibility-restart-btn" class="btn-small hidden">Restart Hotkeys</button>
       </div>
       <div id="accessibility-hint" class="accessibility-hint hidden">
-        1. Open System Settings &gt; Privacy &amp; Security &gt; Accessibility<br>
-        2. Find and enable the toggle for this app<br>
-        3. If hotkeys still don't work, click "Restart Hotkeys" or restart the app<br>
-        <small>Tip: If you see an old entry (e.g. "PushkaVoice 3"), remove it with "−" first.</small>
+        <strong>First launch?</strong> Click "Grant Access" — macOS will prompt you.<br><br>
+        <strong>Updated the app and hotkeys broke?</strong><br>
+        1. Click "Fix After Update" to clear old entries<br>
+        2. macOS will re-ask for permission — click "Allow"<br>
+        3. Enable the toggle in System Settings for PushkaVoice<br>
+        4. Click "Restart Hotkeys"<br>
+        <small>Each new build gets a new code signature, so macOS sees it as a different app.</small>
       </div>
+      <div id="accessibility-status" class="accessibility-status hidden"></div>
     </div>
 
     <!-- Header -->

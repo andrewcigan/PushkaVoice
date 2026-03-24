@@ -541,36 +541,79 @@ function stopStatusPolling() {
 // ── Accessibility permission ──
 const accessibilityBanner = document.getElementById('accessibility-banner');
 const accessibilityGrantBtn = document.getElementById('accessibility-grant-btn');
+const accessibilityResetBtn = document.getElementById('accessibility-reset-btn');
+const accessibilityRestartBtn = document.getElementById('accessibility-restart-btn');
+const accessibilityHint = document.getElementById('accessibility-hint');
+const accessibilityStatus = document.getElementById('accessibility-status');
 let accessibilityPollInterval = null;
 
-const accessibilityHint = document.getElementById('accessibility-hint');
-const accessibilityRestartBtn = document.getElementById('accessibility-restart-btn');
+function showAccessibilityStatus(msg, isSuccess) {
+  accessibilityStatus.textContent = msg;
+  accessibilityStatus.className = 'accessibility-status ' + (isSuccess ? 'success' : 'error');
+  accessibilityStatus.classList.remove('hidden');
+}
 
 accessibilityGrantBtn.addEventListener('click', async () => {
   console.log('Grant Access clicked');
   accessibilityGrantBtn.disabled = true;
-  accessibilityGrantBtn.textContent = 'Check System Settings...';
+  accessibilityGrantBtn.textContent = 'Requesting...';
   try {
     const result = await pywebview.api.request_accessibility();
     console.log('request_accessibility result:', result);
     if (result && result.granted) {
       accessibilityBanner.classList.add('hidden');
+      showPopup('Hotkeys activated!');
     } else {
-      // Show detailed hint and restart button after first attempt
+      // Show hint, reset button, and restart button
       accessibilityHint.classList.remove('hidden');
+      accessibilityResetBtn.classList.remove('hidden');
       accessibilityRestartBtn.classList.remove('hidden');
+      showAccessibilityStatus(
+        'System Settings should have opened. Enable the toggle for PushkaVoice.', false
+      );
       startAccessibilityPoll();
-      // Re-enable after 5s so user can retry
-      setTimeout(() => {
-        accessibilityGrantBtn.disabled = false;
-        accessibilityGrantBtn.textContent = 'Grant Access';
-      }, 5000);
     }
   } catch (e) {
     console.error('request_accessibility error:', e);
+  }
+  setTimeout(() => {
     accessibilityGrantBtn.disabled = false;
     accessibilityGrantBtn.textContent = 'Grant Access';
+  }, 3000);
+});
+
+accessibilityResetBtn.addEventListener('click', async () => {
+  console.log('Fix After Update clicked');
+  accessibilityResetBtn.disabled = true;
+  accessibilityResetBtn.textContent = 'Resetting...';
+  try {
+    // Step 1: Reset stale TCC entries and re-prompt
+    const result = await pywebview.api.reset_and_request_accessibility();
+    console.log('reset_and_request result:', result);
+
+    if (result && result.granted) {
+      accessibilityBanner.classList.add('hidden');
+      showPopup('Hotkeys activated!');
+      return;
+    }
+
+    // Step 2: Open System Settings for manual toggle
+    await pywebview.api.open_accessibility_settings();
+
+    showAccessibilityStatus(
+      'Old entries cleared! System Settings opened — find PushkaVoice and enable the toggle. Then click "Restart Hotkeys".',
+      false
+    );
+    accessibilityRestartBtn.classList.remove('hidden');
+    startAccessibilityPoll();
+  } catch (e) {
+    console.error('reset error:', e);
+    showAccessibilityStatus('Reset failed: ' + e, false);
   }
+  setTimeout(() => {
+    accessibilityResetBtn.disabled = false;
+    accessibilityResetBtn.textContent = 'Fix After Update';
+  }, 3000);
 });
 
 accessibilityRestartBtn.addEventListener('click', async () => {
@@ -585,7 +628,9 @@ accessibilityRestartBtn.addEventListener('click', async () => {
       accessibilityBanner.classList.add('hidden');
       showPopup('Hotkeys activated!');
     } else {
-      showPopup('Still no permission — try restarting the app', true);
+      showAccessibilityStatus(
+        'Still no permission. Try "Fix After Update" or restart the app.', false
+      );
     }
   } catch (e) {
     console.error('restart_hotkey error:', e);
@@ -600,7 +645,6 @@ function startAccessibilityPoll() {
   accessibilityPollInterval = setInterval(async () => {
     try {
       const result = await pywebview.api.check_accessibility();
-      console.log('accessibility poll:', result);
       if (result && result.granted) {
         accessibilityBanner.classList.add('hidden');
         clearInterval(accessibilityPollInterval);
@@ -619,14 +663,14 @@ async function checkAccessibility() {
       accessibilityBanner.classList.remove('hidden');
       // Auto-prompt on first launch
       await pywebview.api.request_accessibility();
+      // Show the fix button right away — users who updated will need it
+      accessibilityResetBtn.classList.remove('hidden');
       startAccessibilityPoll();
     } else {
-      // Already granted or not on macOS
       accessibilityBanner.classList.add('hidden');
     }
   } catch (e) {
     console.error('checkAccessibility error:', e);
-    // Not on macOS or check unavailable — hide banner
     accessibilityBanner.classList.add('hidden');
   }
 }

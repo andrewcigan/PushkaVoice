@@ -4,7 +4,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from utils.accessibility import is_accessibility_granted, prompt_accessibility
+from utils.accessibility import (
+    is_accessibility_granted,
+    open_accessibility_settings,
+    prompt_accessibility,
+    reset_accessibility,
+)
 
 
 class TestIsAccessibilityGranted:
@@ -68,3 +73,49 @@ class TestPromptAccessibility:
              patch("ctypes.c_void_p") as mock_cvp:
             mock_cvp.in_dll.side_effect = ValueError("symbol not found")
             assert prompt_accessibility() is True
+
+
+class TestResetAccessibility:
+    def test_returns_true_on_non_darwin(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "linux")
+        assert reset_accessibility() is True
+
+    @patch("utils.accessibility.subprocess.run")
+    def test_calls_tccutil(self, mock_run, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "darwin")
+        mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+        result = reset_accessibility()
+        assert result is True
+        mock_run.assert_called_once()
+        args = mock_run.call_args[0][0]
+        assert args[0] == "tccutil"
+        assert "Accessibility" in args
+        assert "com.pushkavoice.app" in args
+
+    @patch("utils.accessibility.subprocess.run")
+    def test_returns_false_on_failure(self, mock_run, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "darwin")
+        mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
+        assert reset_accessibility() is False
+
+    @patch("utils.accessibility.subprocess.run")
+    def test_returns_false_on_exception(self, mock_run, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "darwin")
+        mock_run.side_effect = OSError("no tccutil")
+        assert reset_accessibility() is False
+
+
+class TestOpenAccessibilitySettings:
+    def test_noop_on_non_darwin(self, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "linux")
+        # Should not raise
+        open_accessibility_settings()
+
+    @patch("utils.accessibility.subprocess.Popen")
+    def test_opens_system_settings(self, mock_popen, monkeypatch):
+        monkeypatch.setattr(sys, "platform", "darwin")
+        open_accessibility_settings()
+        mock_popen.assert_called_once()
+        args = mock_popen.call_args[0][0]
+        assert "open" in args[0]
+        assert "Accessibility" in args[1]

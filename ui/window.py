@@ -11,7 +11,12 @@ from core.clipboard import copy_and_paste, copy_to_clipboard
 from core.recorder import AudioRecorder
 from core.text_cleaner import clean_text
 from core.transcriber import Transcriber
-from utils.accessibility import is_accessibility_granted, prompt_accessibility
+from utils.accessibility import (
+    is_accessibility_granted,
+    open_accessibility_settings,
+    prompt_accessibility,
+    reset_accessibility,
+)
 from utils.config import Config
 from utils.updater import Updater, check_for_update
 from utils.version import VERSION, BUILD_NUMBER
@@ -372,6 +377,27 @@ class Api:
         if self._hotkey_mgr:
             self._hotkey_mgr.restart()
             logger.info("Hotkey listener restarted manually")
+        return {"ok": True}
+
+    def reset_and_request_accessibility(self):
+        """Reset stale TCC entries, then re-prompt for Accessibility.
+
+        Each ad-hoc signed build gets a new code signature, making old
+        Accessibility entries invalid.  This clears them and re-prompts.
+        """
+        logger.info("Resetting Accessibility TCC entries...")
+        reset_ok = reset_accessibility()
+        logger.info(f"TCC reset result: {reset_ok}")
+        # Now re-prompt — this will add a fresh entry for the current binary
+        granted = prompt_accessibility()
+        logger.info(f"Re-prompt result: granted={granted}")
+        if granted and self._hotkey_mgr:
+            self._hotkey_mgr.restart()
+        return {"reset_ok": reset_ok, "granted": granted}
+
+    def open_accessibility_settings(self):
+        """Open System Settings → Accessibility pane."""
+        open_accessibility_settings()
         return {"ok": True}
 
     # ── Updates ──────────────────────────────────────────────────
