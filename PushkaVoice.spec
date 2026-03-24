@@ -7,6 +7,13 @@ from pathlib import Path
 
 block_cipher = None
 
+# Read version from version.py
+_version_vars = {}
+with open('utils/version.py') as f:
+    exec(f.read(), _version_vars)
+APP_VERSION = _version_vars.get('VERSION', '0.1.0')
+APP_BUILD = str(_version_vars.get('BUILD_NUMBER', 0))
+
 # Include certifi CA bundle so HTTPS works in bundled app
 try:
     import certifi
@@ -123,8 +130,8 @@ app = BUNDLE(
     info_plist={
         'CFBundleName': 'PushkaVoice',
         'CFBundleDisplayName': 'PushkaVoice',
-        'CFBundleVersion': '0.1.0',
-        'CFBundleShortVersionString': '0.1.0',
+        'CFBundleVersion': f'{APP_VERSION}.{APP_BUILD}',
+        'CFBundleShortVersionString': APP_VERSION,
         'NSMicrophoneUsageDescription': 'PushkaVoice needs microphone access for speech dictation.',
         'NSAppleEventsUsageDescription': 'PushkaVoice needs automation access for auto-paste functionality.',
     },

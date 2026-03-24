@@ -631,6 +631,105 @@ async function checkAccessibility() {
   }
 }
 
+// ── Updates ──
+const versionLabel = document.getElementById('version-label');
+const checkUpdateBtn = document.getElementById('check-update-btn');
+const updateInfo = document.getElementById('update-info');
+const updateAvailable = document.getElementById('update-available');
+const updateTag = document.getElementById('update-tag');
+const installUpdateBtn = document.getElementById('install-update-btn');
+const updateProgress = document.getElementById('update-progress');
+const updateProgressBar = document.getElementById('update-progress-bar');
+const updateStatusText = document.getElementById('update-status-text');
+const updateDone = document.getElementById('update-done');
+const restartAppBtn = document.getElementById('restart-app-btn');
+const updateError = document.getElementById('update-error');
+
+let pendingDownloadUrl = null;
+let updatePollInterval = null;
+
+checkUpdateBtn.addEventListener('click', async () => {
+  checkUpdateBtn.disabled = true;
+  checkUpdateBtn.textContent = 'Checking...';
+  updateInfo.classList.remove('hidden');
+  updateAvailable.classList.add('hidden');
+  updateProgress.classList.add('hidden');
+  updateDone.classList.add('hidden');
+  updateError.classList.add('hidden');
+
+  try {
+    const result = await pywebview.api.check_for_update();
+    if (result.error) {
+      updateError.textContent = result.error;
+      updateError.classList.remove('hidden');
+    } else if (result.available) {
+      updateTag.textContent = `New version: ${result.tag}`;
+      pendingDownloadUrl = result.download_url;
+      updateAvailable.classList.remove('hidden');
+    } else {
+      updateError.textContent = 'You are on the latest version.';
+      updateError.classList.remove('hidden');
+      updateError.style.color = 'var(--green)';
+      updateError.style.background = 'rgba(34, 197, 94, 0.1)';
+    }
+  } catch (e) {
+    updateError.textContent = 'Check failed: ' + e;
+    updateError.classList.remove('hidden');
+  }
+  checkUpdateBtn.disabled = false;
+  checkUpdateBtn.textContent = 'Check for Updates';
+});
+
+installUpdateBtn.addEventListener('click', async () => {
+  if (!pendingDownloadUrl) return;
+  installUpdateBtn.disabled = true;
+  updateAvailable.classList.add('hidden');
+  updateProgress.classList.remove('hidden');
+  updateStatusText.textContent = 'Starting download...';
+  updateProgressBar.style.width = '0%';
+
+  await pywebview.api.start_update(pendingDownloadUrl);
+  startUpdatePoll();
+});
+
+function startUpdatePoll() {
+  if (updatePollInterval) return;
+  updatePollInterval = setInterval(async () => {
+    try {
+      const s = await pywebview.api.get_update_status();
+      updateProgressBar.style.width = s.progress + '%';
+      updateStatusText.textContent = s.status;
+
+      if (s.done) {
+        clearInterval(updatePollInterval);
+        updatePollInterval = null;
+        updateProgress.classList.add('hidden');
+        updateDone.classList.remove('hidden');
+      } else if (s.error) {
+        clearInterval(updatePollInterval);
+        updatePollInterval = null;
+        updateProgress.classList.add('hidden');
+        updateError.textContent = s.error;
+        updateError.classList.remove('hidden');
+        updateError.style.color = '';
+        updateError.style.background = '';
+      }
+    } catch (e) {
+      // ignore
+    }
+  }, 500);
+}
+
+restartAppBtn.addEventListener('click', async () => {
+  restartAppBtn.disabled = true;
+  restartAppBtn.textContent = 'Restarting...';
+  try {
+    await pywebview.api.restart_app();
+  } catch (e) {
+    // App may exit before response
+  }
+});
+
 // Init
 let initialized = false;
 async function init() {
@@ -647,6 +746,12 @@ async function init() {
 
   // Check accessibility permission (shows banner if needed)
   await checkAccessibility();
+
+  // Show version
+  try {
+    const ver = await pywebview.api.get_version();
+    versionLabel.textContent = `v${ver.version}` + (ver.build > 0 ? ` (build ${ver.build})` : ' (dev)');
+  } catch (e) { /* ignore */ }
 
   // Load config
   const config = await pywebview.api.get_config();

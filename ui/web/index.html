@@ -197,6 +197,31 @@
       </div>
     </div>
 
+    <!-- Update Section -->
+    <section class="update-section">
+      <div class="update-row">
+        <span id="version-label" class="version-label"></span>
+        <button id="check-update-btn" class="btn-small">Check for Updates</button>
+      </div>
+      <div id="update-info" class="update-info hidden">
+        <div id="update-available" class="update-available hidden">
+          <span id="update-tag"></span>
+          <button id="install-update-btn" class="btn btn-primary btn-small">Install Update</button>
+        </div>
+        <div id="update-progress" class="update-progress hidden">
+          <div class="progress-bar-container small">
+            <div id="update-progress-bar" class="progress-bar"></div>
+          </div>
+          <span id="update-status-text" class="update-status-text"></span>
+        </div>
+        <div id="update-done" class="update-done hidden">
+          <span>Update installed!</span>
+          <button id="restart-app-btn" class="btn btn-primary btn-small">Restart App</button>
+        </div>
+        <div id="update-error" class="update-error hidden"></div>
+      </div>
+    </section>
+
     <!-- Divider -->
     <div class="divider"></div>
 

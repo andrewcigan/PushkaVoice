@@ -13,6 +13,8 @@ from core.text_cleaner import clean_text
 from core.transcriber import Transcriber
 from utils.accessibility import is_accessibility_granted, prompt_accessibility
 from utils.config import Config
+from utils.updater import Updater, check_for_update
+from utils.version import VERSION, BUILD_NUMBER
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,7 @@ class Api:
         self._lock = threading.Lock()
         self._statusbar = None
         self._hotkey_mgr = None
+        self._updater = Updater()
 
     def set_statusbar(self, statusbar):
         self._statusbar = statusbar
@@ -369,4 +372,34 @@ class Api:
         if self._hotkey_mgr:
             self._hotkey_mgr.restart()
             logger.info("Hotkey listener restarted manually")
+        return {"ok": True}
+
+    # ── Updates ──────────────────────────────────────────────────
+
+    def get_version(self):
+        """Return current app version info."""
+        return {"version": VERSION, "build": BUILD_NUMBER}
+
+    def check_for_update(self):
+        """Check GitHub Releases for a newer version."""
+        return check_for_update()
+
+    def start_update(self, download_url):
+        """Start downloading and installing an update in the background."""
+        if self._updater._downloading:
+            return {"error": "Update already in progress"}
+        threading.Thread(
+            target=self._updater.download_and_install,
+            args=(download_url,),
+            daemon=True,
+        ).start()
+        return {"ok": True}
+
+    def get_update_status(self):
+        """Return current update download/install progress."""
+        return self._updater.status
+
+    def restart_app(self):
+        """Restart the application after an update."""
+        Updater.restart_app()
         return {"ok": True}

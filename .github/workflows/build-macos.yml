@@ -33,6 +33,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-build.txt
 
+      - name: Inject build number into version.py
+        run: |
+          sed -i '' "s/BUILD_NUMBER = 0/BUILD_NUMBER = ${{ github.run_number }}/" utils/version.py
+          cat utils/version.py
+
       - name: Build with PyInstaller
         run: |
           pyinstaller PushkaVoice.spec --noconfirm
