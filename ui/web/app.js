@@ -18,6 +18,7 @@ const hotkeyPreset = document.getElementById('hotkey-preset');
 const hotkeySave = document.getElementById('hotkey-save');
 const hotkeyCancel = document.getElementById('hotkey-cancel');
 const autopasteToggle = document.getElementById('autopaste-toggle');
+const llmCleanupToggle = document.getElementById('llm-cleanup-toggle');
 const openFolderBtn = document.getElementById('open-folder-btn');
 const llmProviderSelect = document.getElementById('llm-provider-select');
 const openrouterSettings = document.getElementById('openrouter-settings');
@@ -273,6 +274,22 @@ autopasteToggle.addEventListener('change', async () => {
   await pywebview.api.set_config('auto_paste', autopasteToggle.checked);
 });
 
+// LLM Cleanup toggle
+llmCleanupToggle.addEventListener('change', async () => {
+  const enabled = llmCleanupToggle.checked;
+  await pywebview.api.set_config('llm_cleanup', enabled);
+  toggleLlmSettings(enabled);
+});
+
+function toggleLlmSettings(cleanupEnabled) {
+  const llmSection = document.getElementById('llm-provider-section');
+  if (cleanupEnabled) {
+    llmSection.classList.remove('hidden');
+  } else {
+    llmSection.classList.add('hidden');
+  }
+}
+
 // LLM Provider
 llmProviderSelect.addEventListener('change', async () => {
   const provider = llmProviderSelect.value;
@@ -527,6 +544,7 @@ const accessibilityGrantBtn = document.getElementById('accessibility-grant-btn')
 let accessibilityPollInterval = null;
 
 const accessibilityHint = document.getElementById('accessibility-hint');
+const accessibilityRestartBtn = document.getElementById('accessibility-restart-btn');
 
 accessibilityGrantBtn.addEventListener('click', async () => {
   console.log('Grant Access clicked');
@@ -538,8 +556,9 @@ accessibilityGrantBtn.addEventListener('click', async () => {
     if (result && result.granted) {
       accessibilityBanner.classList.add('hidden');
     } else {
-      // Show detailed hint after first attempt
+      // Show detailed hint and restart button after first attempt
       accessibilityHint.classList.remove('hidden');
+      accessibilityRestartBtn.classList.remove('hidden');
       startAccessibilityPoll();
       // Re-enable after 5s so user can retry
       setTimeout(() => {
@@ -552,6 +571,27 @@ accessibilityGrantBtn.addEventListener('click', async () => {
     accessibilityGrantBtn.disabled = false;
     accessibilityGrantBtn.textContent = 'Grant Access';
   }
+});
+
+accessibilityRestartBtn.addEventListener('click', async () => {
+  console.log('Restart Hotkeys clicked');
+  accessibilityRestartBtn.textContent = 'Restarting...';
+  accessibilityRestartBtn.disabled = true;
+  try {
+    await pywebview.api.restart_hotkey();
+    // Check if it worked now
+    const result = await pywebview.api.check_accessibility();
+    if (result && result.granted) {
+      accessibilityBanner.classList.add('hidden');
+      showPopup('Hotkeys activated!');
+    } else {
+      showPopup('Still no permission — try restarting the app', true);
+    }
+  } catch (e) {
+    console.error('restart_hotkey error:', e);
+  }
+  accessibilityRestartBtn.textContent = 'Restart Hotkeys';
+  accessibilityRestartBtn.disabled = false;
 });
 
 function startAccessibilityPoll() {
@@ -613,6 +653,11 @@ async function init() {
   hotkeyText.textContent = formatHotkey(config.hotkey);
   autopasteToggle.checked = config.auto_paste;
   hotkeyPreset.value = config.hotkey;
+
+  // Load LLM cleanup setting
+  const llmCleanup = config.llm_cleanup !== false;  // default true
+  llmCleanupToggle.checked = llmCleanup;
+  toggleLlmSettings(llmCleanup);
 
   // Load LLM provider settings
   const provider = config.llm_provider || 'local';

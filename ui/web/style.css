@@ -869,6 +869,11 @@ body {
   flex: 1;
 }
 
+.accessibility-buttons {
+  display: flex;
+  gap: 6px;
+}
+
 .accessibility-hint {
   width: 100%;
   margin-top: 4px;

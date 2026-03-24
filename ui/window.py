@@ -77,6 +77,7 @@ class Api:
             "microphone_device_id": self.config.microphone_device_id,
             "auto_paste": self.config.auto_paste,
             "sample_rate": self.config.sample_rate,
+            "llm_cleanup": self.config.get("llm_cleanup", True),
             "llm_provider": self.config.get("llm_provider", "local"),
             "openrouter_api_key": self.config.get("openrouter_api_key", ""),
             "openrouter_model": self.config.get("openrouter_model", "google/gemma-3-4b-it:free"),
@@ -343,9 +344,15 @@ class Api:
         return {"ok": True, "path": log_path}
 
     def check_accessibility(self):
-        """Check if Accessibility permission is granted (non-blocking)."""
+        """Check if Accessibility permission is granted (non-blocking).
+
+        Also restarts the hotkey listener when permission is newly detected.
+        """
         granted = is_accessibility_granted()
         logger.debug(f"Accessibility check: granted={granted}")
+        if granted and self._hotkey_mgr:
+            # Restart listener so pynput picks up the new permission
+            self._hotkey_mgr.restart()
         return {"granted": granted}
 
     def request_accessibility(self):
@@ -353,4 +360,13 @@ class Api:
         logger.info("Requesting Accessibility permission...")
         result = prompt_accessibility()
         logger.info(f"Accessibility prompt result: {result}")
+        if result and self._hotkey_mgr:
+            self._hotkey_mgr.restart()
         return {"granted": result}
+
+    def restart_hotkey(self):
+        """Manually restart the hotkey listener (e.g. after granting permissions)."""
+        if self._hotkey_mgr:
+            self._hotkey_mgr.restart()
+            logger.info("Hotkey listener restarted manually")
+        return {"ok": True}

@@ -94,9 +94,15 @@
     <!-- Accessibility Permission Banner -->
     <div id="accessibility-banner" class="accessibility-banner hidden">
       <span class="accessibility-text">⚠ Hotkeys and auto-paste require Accessibility permission</span>
-      <button id="accessibility-grant-btn" class="btn-small btn-accent">Grant Access</button>
+      <div class="accessibility-buttons">
+        <button id="accessibility-grant-btn" class="btn-small btn-accent">Grant Access</button>
+        <button id="accessibility-restart-btn" class="btn-small hidden">Restart Hotkeys</button>
+      </div>
       <div id="accessibility-hint" class="accessibility-hint hidden">
-        Enable the toggle for this app in System Settings &gt; Privacy &amp; Security &gt; Accessibility. If you see an old entry (e.g. "PushkaVoice 3"), remove it with "−" and re-add the current app.
+        1. Open System Settings &gt; Privacy &amp; Security &gt; Accessibility<br>
+        2. Find and enable the toggle for this app<br>
+        3. If hotkeys still don't work, click "Restart Hotkeys" or restart the app<br>
+        <small>Tip: If you see an old entry (e.g. "PushkaVoice 3"), remove it with "−" first.</small>
       </div>
     </div>
 
@@ -144,20 +150,29 @@
         </label>
       </div>
       <div class="setting-row">
-        <label>LLM Provider</label>
-        <select id="llm-provider-select" class="select">
-          <option value="local">Local (Ollama)</option>
-          <option value="openrouter">OpenRouter</option>
-        </select>
+        <label>LLM cleanup</label>
+        <label class="toggle">
+          <input type="checkbox" id="llm-cleanup-toggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
       </div>
-      <div id="openrouter-settings" class="hidden">
+      <div id="llm-provider-section">
         <div class="setting-row">
-          <label>API Key</label>
-          <input type="password" id="openrouter-key" class="text-input" placeholder="sk-or-...">
+          <label>LLM Provider</label>
+          <select id="llm-provider-select" class="select">
+            <option value="local">Local (Ollama)</option>
+            <option value="openrouter">OpenRouter</option>
+          </select>
         </div>
-        <div class="setting-row">
-          <label>Model</label>
-          <input type="text" id="openrouter-model" class="text-input" placeholder="google/gemma-3-4b-it:free">
+        <div id="openrouter-settings" class="hidden">
+          <div class="setting-row">
+            <label>API Key</label>
+            <input type="password" id="openrouter-key" class="text-input" placeholder="sk-or-...">
+          </div>
+          <div class="setting-row">
+            <label>Model</label>
+            <input type="text" id="openrouter-model" class="text-input" placeholder="google/gemma-3-4b-it:free">
+          </div>
         </div>
       </div>
     </section>

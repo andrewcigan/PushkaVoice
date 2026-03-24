@@ -148,6 +148,12 @@ class HotkeyManager:
             self._listener.stop()
             self._listener = None
 
+    def restart(self):
+        """Restart the listener (e.g. after Accessibility permission is granted)."""
+        logger.info("Restarting hotkey listener...")
+        self.stop()
+        self.start()
+
     def update_hotkey(self, new_hotkey_string: str):
         self.stop()
         self._hotkey_string = new_hotkey_string
