@@ -7,7 +7,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from core.clipboard import copy_and_paste, copy_to_clipboard
+from core.clipboard import copy_and_paste, copy_to_clipboard, remember_frontmost_app
 from core.recorder import AudioRecorder
 from core.text_cleaner import clean_text
 from core.transcriber import Transcriber
@@ -139,6 +139,9 @@ class Api:
             prev_state = self._state
             self.state = "recording"
             self._recording_start_time = time.time()
+            # Remember which app has focus so auto-paste goes to the right place
+            if self.config.auto_paste:
+                remember_frontmost_app()
             logger.info(f"Starting recording (prev_state={prev_state}, device={self.config.microphone_device_id})")
             try:
                 self._recorder = AudioRecorder(

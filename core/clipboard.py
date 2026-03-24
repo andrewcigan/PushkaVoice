@@ -5,6 +5,44 @@ import time
 
 logger = logging.getLogger(__name__)
 
+# Store the frontmost app before recording starts
+_previous_app_bundle = None
+
+
+def remember_frontmost_app():
+    """Remember which app is frontmost (call before recording starts)."""
+    global _previous_app_bundle
+    if sys.platform != "darwin":
+        return
+    try:
+        from AppKit import NSWorkspace
+        app = NSWorkspace.sharedWorkspace().frontmostApplication()
+        _previous_app_bundle = app.bundleIdentifier()
+        logger.info(f"Remembered frontmost app: {app.localizedName()} ({_previous_app_bundle})")
+    except Exception as e:
+        logger.warning(f"Could not remember frontmost app: {e}")
+        _previous_app_bundle = None
+
+
+def restore_frontmost_app():
+    """Restore focus to the app that was frontmost before recording."""
+    global _previous_app_bundle
+    if sys.platform != "darwin" or not _previous_app_bundle:
+        return
+    try:
+        from AppKit import NSWorkspace, NSRunningApplication
+        apps = NSRunningApplication.runningApplicationsWithBundleIdentifier_(_previous_app_bundle)
+        if apps and len(apps) > 0:
+            apps[0].activateWithOptions_(0)
+            logger.info(f"Restored focus to: {_previous_app_bundle}")
+            time.sleep(0.2)  # Give macOS time to switch focus
+        else:
+            logger.warning(f"Could not find running app: {_previous_app_bundle}")
+    except Exception as e:
+        logger.warning(f"Could not restore frontmost app: {e}")
+    finally:
+        _previous_app_bundle = None
+
 
 def copy_to_clipboard(text: str):
     """Copy text to the macOS clipboard.
@@ -65,5 +103,6 @@ def paste_at_cursor():
 
 def copy_and_paste(text: str):
     copy_to_clipboard(text)
-    time.sleep(0.3)
+    restore_frontmost_app()
+    time.sleep(0.1)
     paste_at_cursor()
