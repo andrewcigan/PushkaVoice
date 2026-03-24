@@ -37,6 +37,7 @@ class Api:
         self._statusbar = None
         self._hotkey_mgr = None
         self._updater = Updater()
+        self._accessibility_was_granted = False
 
     def set_statusbar(self, statusbar):
         self._statusbar = statusbar
@@ -357,13 +358,17 @@ class Api:
     def check_accessibility(self):
         """Check if Accessibility permission is granted (non-blocking).
 
-        Also restarts the hotkey listener when permission is newly detected.
+        Also restarts the hotkey listener once when permission is newly detected.
         """
         granted = is_accessibility_granted()
         logger.debug(f"Accessibility check: granted={granted}")
-        if granted and self._hotkey_mgr:
-            # Restart listener so pynput picks up the new permission
+        if granted and not self._accessibility_was_granted and self._hotkey_mgr:
+            # Only restart once when permission transitions from False to True
+            self._accessibility_was_granted = True
+            logger.info("Accessibility newly granted — restarting hotkey listener")
             self._hotkey_mgr.restart()
+        elif not granted:
+            self._accessibility_was_granted = False
         return {"granted": granted}
 
     def request_accessibility(self):

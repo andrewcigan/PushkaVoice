@@ -10,6 +10,7 @@ Falls back to pynput on non-macOS platforms.
 import logging
 import sys
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -182,19 +183,48 @@ class HotkeyManager:
                 | Quartz.CGEventMaskBit(Quartz.kCGEventKeyUp)
             )
 
-            self._tap = Quartz.CGEventTapCreate(
-                Quartz.kCGSessionEventTap,
-                Quartz.kCGHeadInsertEventTap,
-                Quartz.kCGEventTapOptionListenOnly,  # passive listener
-                event_mask,
-                callback,
-                None,
-            )
+            # Retry CGEventTapCreate with backoff — macOS may need time to
+            # propagate Accessibility permission after AXIsProcessTrusted()
+            # already returns True.
+            max_retries = 5
+            retry_delays = [0, 1, 2, 3, 5]  # seconds
+            self._tap = None
+            for attempt in range(max_retries):
+                if not self._running:
+                    return
+                if attempt > 0:
+                    delay = retry_delays[attempt]
+                    logger.info(
+                        "Retrying CGEventTapCreate in %ds (attempt %d/%d)...",
+                        delay, attempt + 1, max_retries,
+                    )
+                    time.sleep(delay)
+                    if not self._running:
+                        return
+
+                self._tap = Quartz.CGEventTapCreate(
+                    Quartz.kCGSessionEventTap,
+                    Quartz.kCGHeadInsertEventTap,
+                    Quartz.kCGEventTapOptionListenOnly,  # passive listener
+                    event_mask,
+                    callback,
+                    None,
+                )
+                if self._tap is not None:
+                    if attempt > 0:
+                        logger.info("CGEventTapCreate succeeded on attempt %d", attempt + 1)
+                    break
+                logger.warning(
+                    "CGEventTapCreate returned None (attempt %d/%d)",
+                    attempt + 1, max_retries,
+                )
 
             if self._tap is None:
                 logger.error(
-                    "Failed to create CGEventTap — Accessibility permission required. "
-                    "Hotkeys will not work until permission is granted."
+                    "Failed to create CGEventTap after %d attempts — "
+                    "Accessibility permission required. "
+                    "Hotkeys will not work until permission is granted.",
+                    max_retries,
                 )
                 return
 
