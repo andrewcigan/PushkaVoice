@@ -18,7 +18,9 @@ logger = logging.getLogger(__name__)
 
 # Use /releases (not /releases/latest) because all our releases are
 # marked as prerelease, and GitHub's /latest endpoint skips prereleases.
-GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=1"
+# Fetch enough releases to find the highest build number — GitHub sorts
+# prereleases lexicographically (beta.9 > beta.26), not numerically.
+GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=50"
 ASSET_NAME = "PushkaVoice-macos-arm64.zip"
 
 
@@ -61,11 +63,28 @@ def check_for_update() -> dict:
             result["error"] = "No releases found"
             return result
 
-        # /releases returns a list sorted newest-first
-        data = releases[0] if isinstance(releases, list) else releases
+        # GitHub sorts prerelease tags lexicographically, not numerically
+        # (beta.9 appears before beta.26).  Find the release with the
+        # highest build number ourselves.
+        if not isinstance(releases, list):
+            releases = [releases]
 
+        best = None
+        best_build = 0
+        for rel in releases:
+            tag = rel.get("tag_name", "")
+            build = _parse_build_number(tag)
+            if build > best_build:
+                best_build = build
+                best = rel
+
+        if best is None:
+            result["error"] = "No valid releases found"
+            return result
+
+        data = best
         tag = data.get("tag_name", "")
-        remote_build = _parse_build_number(tag)
+        remote_build = best_build
         result["tag"] = tag
         result["build"] = remote_build
         result["release_url"] = data.get("html_url", "")
