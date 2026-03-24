@@ -202,7 +202,26 @@ def _log_app_identity():
     logger.info("="*60)
 
 
+def _ensure_single_instance():
+    """Prevent multiple app instances using a lock file."""
+    lock_path = DATA_DIR / ".pushkavoice.lock"
+    import fcntl
+    # Keep the file object alive for the process lifetime
+    _ensure_single_instance._lock_file = open(lock_path, "w")
+    try:
+        fcntl.flock(_ensure_single_instance._lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        _ensure_single_instance._lock_file.write(str(os.getpid()))
+        _ensure_single_instance._lock_file.flush()
+        return True
+    except (OSError, IOError):
+        logger.warning("Another PushkaVoice instance is already running, exiting.")
+        return False
+
+
 def main():
+    if not _ensure_single_instance():
+        sys.exit(0)
+
     logger.info("PushkaVoice starting, PID=%d", os.getpid())
     _log_app_identity()
 

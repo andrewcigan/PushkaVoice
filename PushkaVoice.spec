@@ -108,7 +108,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
-    argv_emulation=True,
+    argv_emulation=False,
     target_arch='arm64',
 )
 
@@ -134,5 +134,6 @@ app = BUNDLE(
         'CFBundleShortVersionString': APP_VERSION,
         'NSMicrophoneUsageDescription': 'PushkaVoice needs microphone access for speech dictation.',
         'NSAppleEventsUsageDescription': 'PushkaVoice needs automation access for auto-paste functionality.',
+        'LSMultipleInstancesProhibited': True,
     },
 )
