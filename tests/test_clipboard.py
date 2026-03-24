@@ -5,15 +5,39 @@ import pytest
 
 
 class TestCopyToClipboard:
+    @patch("core.clipboard.sys")
     @patch("core.clipboard.subprocess.Popen")
-    def test_copies_text_via_pbcopy(self, mock_popen):
+    def test_copies_text_via_nspasteboard_on_darwin(self, mock_popen, mock_sys):
+        """On macOS, uses NSPasteboard when available."""
+        mock_sys.platform = "darwin"
+        mock_pb = MagicMock()
+        mock_ns = MagicMock()
+        mock_ns.NSPasteboard.generalPasteboard.return_value = mock_pb
+
+        with patch.dict("sys.modules", {"AppKit": mock_ns}):
+            from core.clipboard import copy_to_clipboard
+            copy_to_clipboard("Привет мир")
+
+        mock_pb.clearContents.assert_called_once()
+        mock_pb.setString_forType_.assert_called_once_with(
+            "Привет мир", mock_ns.NSPasteboardTypeString
+        )
+        # pbcopy should NOT be called when NSPasteboard works
+        mock_popen.assert_not_called()
+
+    @patch("core.clipboard.subprocess.Popen")
+    def test_falls_back_to_pbcopy_with_utf8_env(self, mock_popen):
+        """On non-macOS (or if NSPasteboard fails), falls back to pbcopy with UTF-8 env."""
         mock_proc = MagicMock()
         mock_popen.return_value = mock_proc
 
         from core.clipboard import copy_to_clipboard
         copy_to_clipboard("Привет мир")
 
-        mock_popen.assert_called_once_with(["pbcopy"], stdin=-1)  # subprocess.PIPE = -1
+        mock_popen.assert_called_once_with(
+            ["pbcopy"], stdin=-1,
+            env={"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"},
+        )
         mock_proc.communicate.assert_called_once_with("Привет мир".encode("utf-8"))
 
     @patch("core.clipboard.subprocess.Popen")

@@ -360,26 +360,30 @@ async function updateLogPreview() {
   }
 }
 
-// History
+// History — store data to avoid inline escaping issues
+let _historyData = [];
+
 async function loadHistory() {
   const history = await pywebview.api.get_history();
-  if (!history || history.length === 0) {
+  _historyData = history || [];
+
+  if (_historyData.length === 0) {
     historyList.innerHTML = '<div class="history-empty">No dictations yet</div>';
     return;
   }
 
-  historyList.innerHTML = history.map(item => {
+  historyList.innerHTML = _historyData.map((item, idx) => {
     const isError = item.status === 'error' || item.status === 'pending';
     const statusDot = item.status === 'ok'
       ? '<span class="status-dot ok" title="Transcribed">&#x25CF;</span>'
       : '<span class="status-dot error" title="Failed">&#x25CF;</span>';
 
     const retryBtn = isError
-      ? `<button class="history-retry" onclick="retryItem(this, '${escapeAttr(item.wav)}')" title="Retry transcription">&#x21BB;</button>`
+      ? `<button class="history-retry" data-action="retry" data-index="${idx}" title="Retry transcription">&#x21BB;</button>`
       : '';
 
     const copyBtn = item.status === 'ok'
-      ? `<button class="history-copy" onclick="copyHistoryItem(this, '${escapeAttr(item.text)}')" title="Copy">
+      ? `<button class="history-copy" data-action="copy" data-index="${idx}" title="Copy">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="9" y="9" width="13" height="13" rx="2"/>
             <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
@@ -399,38 +403,41 @@ async function loadHistory() {
   }).join('');
 }
 
-async function copyHistoryItem(btn, text) {
-  await pywebview.api.copy_text(text);
-  btn.classList.add('copied');
-  setTimeout(() => btn.classList.remove('copied'), 1500);
-}
+// Event delegation for history actions
+historyList.addEventListener('click', async (e) => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const idx = parseInt(btn.dataset.index, 10);
+  const item = _historyData[idx];
+  if (!item) return;
 
-async function retryItem(btn, wavPath) {
-  btn.disabled = true;
-  btn.textContent = '...';
-  setState('transcribing');
-  try {
-    const result = await pywebview.api.retry_transcription(wavPath);
-    if (result && result.text) {
-      showPopup('Transcribed!');
-    } else if (result && result.error) {
-      showPopup(result.error, true);
+  if (btn.dataset.action === 'copy') {
+    await pywebview.api.copy_text(item.text);
+    btn.classList.add('copied');
+    setTimeout(() => btn.classList.remove('copied'), 1500);
+  } else if (btn.dataset.action === 'retry') {
+    btn.disabled = true;
+    btn.textContent = '...';
+    setState('transcribing');
+    try {
+      const result = await pywebview.api.retry_transcription(item.wav);
+      if (result && result.text) {
+        showPopup('Transcribed!');
+      } else if (result && result.error) {
+        showPopup(result.error, true);
+      }
+    } catch (e) {
+      showPopup('Retry failed', true);
     }
-  } catch (e) {
-    showPopup('Retry failed', true);
+    setState('idle');
+    await loadHistory();
   }
-  setState('idle');
-  await loadHistory();
-}
+});
 
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
   return div.innerHTML;
-}
-
-function escapeAttr(str) {
-  return str.replace(/'/g, "\\'").replace(/"/g, '\\"').replace(/\n/g, ' ');
 }
 
 // Popup
@@ -519,6 +526,8 @@ const accessibilityBanner = document.getElementById('accessibility-banner');
 const accessibilityGrantBtn = document.getElementById('accessibility-grant-btn');
 let accessibilityPollInterval = null;
 
+const accessibilityHint = document.getElementById('accessibility-hint');
+
 accessibilityGrantBtn.addEventListener('click', async () => {
   console.log('Grant Access clicked');
   accessibilityGrantBtn.disabled = true;
@@ -529,6 +538,8 @@ accessibilityGrantBtn.addEventListener('click', async () => {
     if (result && result.granted) {
       accessibilityBanner.classList.add('hidden');
     } else {
+      // Show detailed hint after first attempt
+      accessibilityHint.classList.remove('hidden');
       startAccessibilityPoll();
       // Re-enable after 5s so user can retry
       setTimeout(() => {

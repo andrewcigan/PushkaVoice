@@ -1,14 +1,33 @@
 import logging
 import subprocess
+import sys
 import time
 
 logger = logging.getLogger(__name__)
 
 
 def copy_to_clipboard(text: str):
-    process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE)
+    """Copy text to the macOS clipboard.
+
+    Uses NSPasteboard (PyObjC) for reliable UTF-8 handling.
+    Falls back to pbcopy with explicit UTF-8 locale if PyObjC is unavailable.
+    """
+    if sys.platform == "darwin":
+        try:
+            from AppKit import NSPasteboard, NSPasteboardTypeString
+            pb = NSPasteboard.generalPasteboard()
+            pb.clearContents()
+            pb.setString_forType_(text, NSPasteboardTypeString)
+            logger.info(f"Copied to clipboard via NSPasteboard: {len(text)} chars")
+            return
+        except Exception as e:
+            logger.warning(f"NSPasteboard failed: {e}, falling back to pbcopy")
+
+    # Fallback: pbcopy with explicit UTF-8 locale
+    env = {"LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
+    process = subprocess.Popen(["pbcopy"], stdin=subprocess.PIPE, env=env)
     process.communicate(text.encode("utf-8"))
-    logger.info(f"Copied to clipboard: {len(text)} chars")
+    logger.info(f"Copied to clipboard via pbcopy: {len(text)} chars")
 
 
 def paste_at_cursor():
