@@ -93,19 +93,26 @@ def main():
     hotkey_mgr = HotkeyManager(config.hotkey, on_hotkey)
     hotkey_mgr.start()
 
+    # Give Api a reference so UI-driven hotkey changes propagate
+    api.set_hotkey_manager(hotkey_mgr)
+
     # Hotkey handler thread
     def hotkey_handler():
         while True:
             try:
                 event = event_queue.get(timeout=0.5)
                 if event == "TOGGLE":
-                    if api.state == "idle":
+                    # get_state() auto-transitions loading→idle
+                    state = api.get_state()
+                    if state == "idle":
                         api.start_recording()
                         logger.info("Recording started (hotkey)")
-                    elif api.state == "recording":
+                    elif state == "recording":
                         # Run transcription in a thread so we don't block
                         threading.Thread(target=api.stop_recording, daemon=True).start()
                         logger.info("Recording stopped (hotkey)")
+                    else:
+                        logger.debug("Hotkey ignored, state=%s", state)
             except queue.Empty:
                 continue
 

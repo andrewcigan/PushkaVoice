@@ -115,6 +115,18 @@ class TestApiSetConfig:
         api.set_config("hotkey", "<f5>")
         assert api.config.hotkey == "<f5>"
 
+    def test_set_hotkey_propagates_to_manager(self, api):
+        mock_mgr = MagicMock()
+        api.set_hotkey_manager(mock_mgr)
+        api.set_config("hotkey", "<f8>")
+        mock_mgr.update_hotkey.assert_called_once_with("<f8>")
+
+    def test_set_non_hotkey_does_not_touch_manager(self, api):
+        mock_mgr = MagicMock()
+        api.set_hotkey_manager(mock_mgr)
+        api.set_config("sample_rate", 44100)
+        mock_mgr.update_hotkey.assert_not_called()
+
     def test_set_llm_provider(self, api):
         api.set_config("llm_provider", "openrouter")
         assert api.config.get("llm_provider") == "openrouter"

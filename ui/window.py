@@ -27,9 +27,13 @@ class Api:
         self._recording_start_time = None
         self._lock = threading.Lock()
         self._statusbar = None
+        self._hotkey_mgr = None
 
     def set_statusbar(self, statusbar):
         self._statusbar = statusbar
+
+    def set_hotkey_manager(self, hotkey_mgr):
+        self._hotkey_mgr = hotkey_mgr
 
     @property
     def state(self):
@@ -78,6 +82,8 @@ class Api:
         self.config.set(key, value)
         if key == "hotkey":
             logger.info(f"Hotkey changed to: {value}")
+            if self._hotkey_mgr:
+                self._hotkey_mgr.update_hotkey(value)
 
     def is_setup_complete(self):
         """Check if initial setup has been completed."""
