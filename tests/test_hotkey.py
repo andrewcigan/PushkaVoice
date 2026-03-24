@@ -96,7 +96,7 @@ class TestHotkeyManagerInit:
         hm = HotkeyManager("<cmd>+<shift>+d", cb)
         assert hm._hotkey_string == "<cmd>+<shift>+d"
         assert hm._callback is cb
-        assert hm._listener is None
+        assert hm._listener_thread is None
         assert hm._required_modifiers == frozenset({"cmd", "shift"})
         assert hm._required_key == "d"
 

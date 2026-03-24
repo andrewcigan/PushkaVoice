@@ -262,7 +262,11 @@ class Updater:
 
     @staticmethod
     def restart_app():
-        """Restart the application by launching the new bundle and quitting."""
+        """Restart the application by launching the new bundle and quitting.
+
+        Resets Accessibility TCC entries before restart so the new binary
+        (which has a different ad-hoc code signature) gets a clean slate.
+        """
         if not getattr(sys, 'frozen', False):
             logger.warning("Cannot restart in dev mode")
             return
@@ -275,6 +279,14 @@ class Updater:
         else:
             logger.error("Cannot find .app bundle for restart")
             return
+
+        # Pre-clear stale TCC entries so the new binary can get fresh permission
+        try:
+            from utils.accessibility import reset_accessibility
+            logger.info("Resetting Accessibility TCC before restart...")
+            reset_accessibility()
+        except Exception as e:
+            logger.warning("TCC reset before restart failed: %s", e)
 
         logger.info(f"Restarting app: {app_bundle}")
         subprocess.Popen(["open", "-n", str(app_bundle)])

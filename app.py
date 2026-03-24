@@ -240,8 +240,22 @@ def main():
     statusbar.setup()
     api.set_statusbar(statusbar)
 
-    # Check Accessibility permission (prompts user on first launch)
-    from utils.accessibility import prompt_accessibility, is_accessibility_granted
+    # Check Accessibility permission.
+    # After an app update the code signature changes, making old TCC entries
+    # stale.  Detect this by comparing the stored build number with the
+    # current one and automatically reset + re-prompt when they differ.
+    from utils.accessibility import prompt_accessibility, is_accessibility_granted, reset_accessibility
+    from utils.version import BUILD_NUMBER as _CURRENT_BUILD
+
+    _stored_build = config.get("last_build_number", 0)
+    if _CURRENT_BUILD != 0 and _stored_build != _CURRENT_BUILD:
+        logger.info(
+            "Build changed (%s → %s) — resetting Accessibility TCC entries",
+            _stored_build, _CURRENT_BUILD,
+        )
+        reset_accessibility()
+        config.set("last_build_number", _CURRENT_BUILD)
+
     logger.info("Checking Accessibility before prompt: granted=%s", is_accessibility_granted())
     prompt_accessibility()
     logger.info("Checking Accessibility after prompt: granted=%s", is_accessibility_granted())
