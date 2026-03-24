@@ -60,6 +60,7 @@ hiddenimports = [
     'PyObjCTools.Conversion',
     'Quartz',
     'Quartz.CoreGraphics',
+    'ApplicationServices',
     '_sounddevice_data',
 ]
 

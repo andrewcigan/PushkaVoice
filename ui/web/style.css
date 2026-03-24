@@ -845,3 +845,31 @@ body {
 .result-popup.show {
   opacity: 1;
 }
+
+/* Accessibility banner */
+.accessibility-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  background: #fff3cd;
+  border-bottom: 1px solid #ffc107;
+  font-size: 12px;
+  color: #664d03;
+}
+
+.accessibility-text {
+  flex: 1;
+}
+
+.btn-accent {
+  background: #ffc107;
+  color: #664d03;
+  border: none;
+  font-weight: 600;
+}
+
+.btn-accent:hover {
+  background: #e0a800;
+}

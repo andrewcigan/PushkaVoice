@@ -11,6 +11,7 @@ from core.clipboard import copy_and_paste, copy_to_clipboard
 from core.recorder import AudioRecorder
 from core.text_cleaner import clean_text
 from core.transcriber import Transcriber
+from utils.accessibility import is_accessibility_granted, prompt_accessibility
 from utils.config import Config
 
 logger = logging.getLogger(__name__)
@@ -311,3 +312,11 @@ class Api:
         if os.path.exists(log_path):
             subprocess.run(["open", log_path], check=False)
         return {"ok": True, "path": log_path}
+
+    def check_accessibility(self):
+        """Check if Accessibility permission is granted (non-blocking)."""
+        return is_accessibility_granted()
+
+    def request_accessibility(self):
+        """Prompt user for Accessibility permission (opens System Settings)."""
+        return prompt_accessibility()

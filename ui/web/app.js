@@ -493,6 +493,45 @@ function stopStatusPolling() {
   logPreviewCounter = 0;
 }
 
+// ── Accessibility permission ──
+const accessibilityBanner = document.getElementById('accessibility-banner');
+const accessibilityGrantBtn = document.getElementById('accessibility-grant-btn');
+let accessibilityPollInterval = null;
+
+accessibilityGrantBtn.addEventListener('click', async () => {
+  await pywebview.api.request_accessibility();
+  // Start polling — user needs to flip the toggle in System Settings
+  startAccessibilityPoll();
+});
+
+function startAccessibilityPoll() {
+  if (accessibilityPollInterval) return;
+  accessibilityPollInterval = setInterval(async () => {
+    try {
+      const granted = await pywebview.api.check_accessibility();
+      if (granted) {
+        accessibilityBanner.classList.add('hidden');
+        clearInterval(accessibilityPollInterval);
+        accessibilityPollInterval = null;
+      }
+    } catch (e) { /* ignore */ }
+  }, 2000);
+}
+
+async function checkAccessibility() {
+  try {
+    const granted = await pywebview.api.check_accessibility();
+    if (!granted) {
+      accessibilityBanner.classList.remove('hidden');
+      // Auto-prompt on first launch
+      await pywebview.api.request_accessibility();
+      startAccessibilityPoll();
+    }
+  } catch (e) {
+    // Not on macOS or check unavailable — hide banner
+  }
+}
+
 // Init
 let initialized = false;
 async function init() {
@@ -506,6 +545,9 @@ async function init() {
   } else {
     setState('loading');
   }
+
+  // Check accessibility permission (shows banner if needed)
+  await checkAccessibility();
 
   // Load config
   const config = await pywebview.api.get_config();

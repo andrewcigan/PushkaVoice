@@ -80,6 +80,10 @@ def main():
     statusbar.setup()
     api.set_statusbar(statusbar)
 
+    # Check Accessibility permission (prompts user on first launch)
+    from utils.accessibility import prompt_accessibility
+    prompt_accessibility()
+
     # Setup hotkey
     from ui.hotkey import HotkeyManager
     import queue
