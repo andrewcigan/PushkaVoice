@@ -240,13 +240,12 @@ def main():
     statusbar.setup()
     api.set_statusbar(statusbar)
 
-    # Check permissions: Accessibility (for auto-paste) and Input Monitoring
-    # (for CGEventTap hotkeys).  After an app update the code signature
-    # changes, making old TCC entries stale.  Detect build changes and
-    # automatically reset + re-prompt both permission types.
+    # After an app update the code signature changes, making old TCC entries
+    # stale.  Detect build changes and automatically reset them.
+    # Permission prompting is handled by the in-app wizard (ui/web/app.js).
     from utils.accessibility import (
-        is_accessibility_granted, prompt_accessibility, reset_all_permissions,
-        is_input_monitoring_granted, request_input_monitoring,
+        is_accessibility_granted, reset_all_permissions,
+        is_input_monitoring_granted,
     )
     from utils.version import BUILD_NUMBER as _CURRENT_BUILD
 
@@ -259,15 +258,8 @@ def main():
         reset_all_permissions()
         config.set("last_build_number", _CURRENT_BUILD)
 
-    # Request Accessibility (for auto-paste)
-    logger.info("Accessibility: granted=%s", is_accessibility_granted())
-    prompt_accessibility()
-
-    # Request Input Monitoring (for CGEventTap / hotkeys)
-    logger.info("Input Monitoring: granted=%s", is_input_monitoring_granted())
-    request_input_monitoring()
     logger.info(
-        "After prompts: accessibility=%s, input_monitoring=%s",
+        "Permissions: accessibility=%s, input_monitoring=%s",
         is_accessibility_granted(), is_input_monitoring_granted(),
     )
 

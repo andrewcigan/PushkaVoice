@@ -424,6 +424,26 @@ class Api:
         open_accessibility_settings()
         return {"ok": True}
 
+    def open_permission_settings(self, perm_type: str):
+        """Open System Settings to the correct Privacy pane."""
+        if perm_type == "accessibility":
+            open_accessibility_settings()
+        elif perm_type == "input_monitoring":
+            open_input_monitoring_settings()
+        return {"ok": True}
+
+    def prompt_single_permission(self, perm_type: str):
+        """Trigger macOS system prompt for one permission at a time."""
+        granted = False
+        if perm_type == "accessibility":
+            granted = prompt_accessibility()
+        elif perm_type == "input_monitoring":
+            granted = request_input_monitoring()
+            if granted and self._hotkey_mgr:
+                self._hotkey_mgr.restart()
+        logger.info(f"prompt_single_permission({perm_type}) = {granted}")
+        return {"granted": granted}
+
     # ── Updates ──────────────────────────────────────────────────
 
     def get_version(self):

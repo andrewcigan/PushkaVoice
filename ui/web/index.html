@@ -48,6 +48,49 @@
     </div>
   </div>
 
+  <!-- Permissions Setup (shown when Accessibility / Input Monitoring not granted) -->
+  <div id="permissions-screen" class="permissions-screen hidden">
+    <div class="permissions-content">
+      <div class="download-icon">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+      </div>
+      <h2 class="setup-title">Permissions</h2>
+      <p class="setup-subtitle">PushkaVoice needs two macOS permissions</p>
+
+      <div class="permission-steps">
+        <div id="perm-step-accessibility" class="permission-step">
+          <div class="permission-step-icon" id="perm-icon-accessibility">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+            </svg>
+          </div>
+          <div class="permission-step-text">
+            <strong>Accessibility</strong>
+            <span>Auto-paste text (Cmd+V)</span>
+          </div>
+          <button id="perm-btn-accessibility" class="btn-small btn-accent">Open Settings</button>
+        </div>
+
+        <div id="perm-step-input-monitoring" class="permission-step">
+          <div class="permission-step-icon" id="perm-icon-input-monitoring">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+            </svg>
+          </div>
+          <div class="permission-step-text">
+            <strong>Input Monitoring</strong>
+            <span>Global hotkey support</span>
+          </div>
+          <button id="perm-btn-input-monitoring" class="btn-small btn-accent" disabled>Open Settings</button>
+        </div>
+      </div>
+
+      <p class="permissions-hint">Find <strong>PushkaVoice</strong> in the list and toggle it on</p>
+    </div>
+  </div>
+
   <!-- Download/Loading Overlay -->
   <div id="download-screen" class="download-screen hidden">
     <div class="download-content">
@@ -91,26 +134,6 @@
   </div>
 
   <div class="app">
-    <!-- Accessibility Permission Banner -->
-    <div id="accessibility-banner" class="accessibility-banner hidden">
-      <span class="accessibility-text">⚠ Hotkeys require Input Monitoring permission</span>
-      <div class="accessibility-buttons">
-        <button id="accessibility-grant-btn" class="btn-small btn-accent">Grant Access</button>
-        <button id="accessibility-reset-btn" class="btn-small btn-warning hidden">Fix After Update</button>
-        <button id="accessibility-restart-btn" class="btn-small hidden">Restart Hotkeys</button>
-      </div>
-      <div id="accessibility-hint" class="accessibility-hint hidden">
-        <strong>First launch?</strong> Click "Grant Access" — macOS will prompt you.<br><br>
-        <strong>Updated the app and hotkeys broke?</strong><br>
-        1. Click "Fix After Update" to clear old entries<br>
-        2. macOS will re-ask for permission — click "Allow"<br>
-        3. Enable the toggle in System Settings for PushkaVoice<br>
-        4. Click "Restart Hotkeys"<br>
-        <small>Each new build gets a new code signature, so macOS sees it as a different app.</small>
-      </div>
-      <div id="accessibility-status" class="accessibility-status hidden"></div>
-    </div>
-
     <!-- Header -->
     <header class="header">
       <h1>GigaAM Dictation</h1>

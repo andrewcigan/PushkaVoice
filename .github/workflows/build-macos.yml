@@ -68,10 +68,10 @@ jobs:
         if: github.ref == 'refs/heads/claude/llm-provider-settings-fr4tr' || github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.1.0-beta.${{ github.run_number }}
-          name: PushkaVoice v0.1.0-beta (Build ${{ github.run_number }})
+          tag_name: v0.1.0.${{ github.run_number }}
+          name: PushkaVoice v0.1.0 (Build ${{ github.run_number }})
           body: |
-            ## PushkaVoice v0.1.0-beta
+            ## PushkaVoice v0.1.0
 
             Standalone macOS app for Russian speech-to-text dictation.
 
@@ -94,6 +94,6 @@ jobs:
             4. Allow microphone access when prompted
           files: PushkaVoice-macos-arm64.zip
           draft: false
-          prerelease: true
+          prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

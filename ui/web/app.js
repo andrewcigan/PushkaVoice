@@ -1,5 +1,5 @@
 // State
-let state = 'idle'; // idle, recording, transcribing, loading, setup, load_error
+let state = 'idle'; // idle, recording, transcribing, loading, setup, permissions, load_error
 let timerInterval = null;
 let timerSeconds = 0;
 
@@ -28,6 +28,13 @@ const historyList = document.getElementById('history-list');
 const setupScreen = document.getElementById('setup-screen');
 const setupLocalBtn = document.getElementById('setup-local');
 const setupCloudBtn = document.getElementById('setup-cloud');
+const permissionsScreen = document.getElementById('permissions-screen');
+const permBtnAccessibility = document.getElementById('perm-btn-accessibility');
+const permBtnInputMonitoring = document.getElementById('perm-btn-input-monitoring');
+const permStepAccessibility = document.getElementById('perm-step-accessibility');
+const permStepInputMonitoring = document.getElementById('perm-step-input-monitoring');
+const permIconAccessibility = document.getElementById('perm-icon-accessibility');
+const permIconInputMonitoring = document.getElementById('perm-icon-input-monitoring');
 const downloadScreen = document.getElementById('download-screen');
 const downloadStatus = document.getElementById('download-status');
 const downloadDetail = document.getElementById('download-detail');
@@ -108,12 +115,21 @@ function setState(newState) {
   switch (state) {
     case 'setup':
       setupScreen.classList.remove('hidden');
+      permissionsScreen.classList.add('hidden');
+      downloadScreen.classList.add('hidden');
+      recordBtn.disabled = true;
+      break;
+
+    case 'permissions':
+      setupScreen.classList.add('hidden');
+      permissionsScreen.classList.remove('hidden');
       downloadScreen.classList.add('hidden');
       recordBtn.disabled = true;
       break;
 
     case 'downloading':
       setupScreen.classList.add('hidden');
+      permissionsScreen.classList.add('hidden');
       statusBadge.textContent = 'Downloading...';
       statusBadge.className = 'badge badge-loading';
       recordBtn.disabled = true;
@@ -125,6 +141,7 @@ function setState(newState) {
 
     case 'loading':
       setupScreen.classList.add('hidden');
+      permissionsScreen.classList.add('hidden');
       statusBadge.textContent = 'Loading model...';
       statusBadge.className = 'badge badge-loading';
       recordBtn.disabled = true;
@@ -140,6 +157,7 @@ function setState(newState) {
 
     case 'load_error':
       setupScreen.classList.add('hidden');
+      permissionsScreen.classList.add('hidden');
       statusBadge.textContent = 'Error';
       statusBadge.className = 'badge badge-loading';
       recordBtn.disabled = true;
@@ -156,6 +174,7 @@ function setState(newState) {
 
     case 'idle':
       setupScreen.classList.add('hidden');
+      permissionsScreen.classList.add('hidden');
       statusBadge.textContent = 'Ready';
       statusBadge.className = 'badge badge-ready';
       recordBtn.disabled = false;
@@ -198,7 +217,18 @@ function setState(newState) {
 // Setup screen handlers
 async function handleSetupChoice(provider) {
   await pywebview.api.complete_setup(provider);
-  setState('loading');
+  // Check permissions before proceeding to loading
+  const perms = await pywebview.api.check_accessibility();
+  if (!perms.granted) {
+    setState('permissions');
+    if (perms.accessibility) {
+      updatePermissionStep(permStepAccessibility, permIconAccessibility, permBtnAccessibility, true);
+      permBtnInputMonitoring.disabled = false;
+    }
+    startPermissionsPoll();
+  } else {
+    setState('loading');
+  }
 }
 
 setupLocalBtn.addEventListener('click', () => handleSetupChoice('local'));
@@ -538,159 +568,80 @@ function stopStatusPolling() {
   logPreviewCounter = 0;
 }
 
-// ── Accessibility permission ──
-const accessibilityBanner = document.getElementById('accessibility-banner');
-const accessibilityGrantBtn = document.getElementById('accessibility-grant-btn');
-const accessibilityResetBtn = document.getElementById('accessibility-reset-btn');
-const accessibilityRestartBtn = document.getElementById('accessibility-restart-btn');
-const accessibilityHint = document.getElementById('accessibility-hint');
-const accessibilityStatus = document.getElementById('accessibility-status');
-let accessibilityPollInterval = null;
+// ── Permissions wizard ──
+const checkmarkSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
+let permissionsPollInterval = null;
 
-function showAccessibilityStatus(msg, isSuccess) {
-  accessibilityStatus.textContent = msg;
-  accessibilityStatus.className = 'accessibility-status ' + (isSuccess ? 'success' : 'error');
-  accessibilityStatus.classList.remove('hidden');
+function updatePermissionStep(stepEl, iconEl, btnEl, granted) {
+  if (granted) {
+    stepEl.classList.add('granted');
+    iconEl.innerHTML = checkmarkSvg;
+    btnEl.textContent = 'Granted';
+    btnEl.disabled = true;
+  }
 }
 
-accessibilityGrantBtn.addEventListener('click', async () => {
-  console.log('Grant Access clicked');
-  accessibilityGrantBtn.disabled = true;
-  accessibilityGrantBtn.textContent = 'Requesting...';
+permBtnAccessibility.addEventListener('click', async () => {
+  permBtnAccessibility.disabled = true;
+  permBtnAccessibility.textContent = 'Opening...';
   try {
-    const result = await pywebview.api.request_accessibility();
-    console.log('request_accessibility result:', result);
-    if (result && result.granted) {
-      accessibilityBanner.classList.add('hidden');
-      showPopup('Hotkeys activated!');
-    } else {
-      // Show hint, reset button, and restart button
-      accessibilityHint.classList.remove('hidden');
-      accessibilityResetBtn.classList.remove('hidden');
-      accessibilityRestartBtn.classList.remove('hidden');
-      showAccessibilityStatus(
-        'System Settings should have opened. Enable the toggle for PushkaVoice.', false
-      );
-      startAccessibilityPoll();
-    }
-  } catch (e) {
-    console.error('request_accessibility error:', e);
-  }
+    await pywebview.api.prompt_single_permission('accessibility');
+    await pywebview.api.open_permission_settings('accessibility');
+  } catch (e) { console.error('prompt accessibility error:', e); }
   setTimeout(() => {
-    accessibilityGrantBtn.disabled = false;
-    accessibilityGrantBtn.textContent = 'Grant Access';
-  }, 3000);
+    if (!permStepAccessibility.classList.contains('granted')) {
+      permBtnAccessibility.disabled = false;
+      permBtnAccessibility.textContent = 'Open Settings';
+    }
+  }, 2000);
+  startPermissionsPoll();
 });
 
-accessibilityResetBtn.addEventListener('click', async () => {
-  console.log('Fix After Update clicked');
-  accessibilityResetBtn.disabled = true;
-  accessibilityResetBtn.textContent = 'Resetting...';
+permBtnInputMonitoring.addEventListener('click', async () => {
+  permBtnInputMonitoring.disabled = true;
+  permBtnInputMonitoring.textContent = 'Opening...';
   try {
-    // Step 1: Reset stale TCC entries and re-prompt
-    const result = await pywebview.api.reset_and_request_accessibility();
-    console.log('reset_and_request result:', result);
-
-    if (result && result.granted) {
-      accessibilityBanner.classList.add('hidden');
-      showPopup('Hotkeys activated!');
-      return;
-    }
-
-    // Step 2: Open System Settings for manual toggle
-    await pywebview.api.open_accessibility_settings();
-
-    showAccessibilityStatus(
-      'Old entries cleared! System Settings opened — find PushkaVoice and enable the toggle. Then click "Restart Hotkeys".',
-      false
-    );
-    accessibilityRestartBtn.classList.remove('hidden');
-    startAccessibilityPoll();
-  } catch (e) {
-    console.error('reset error:', e);
-    showAccessibilityStatus('Reset failed: ' + e, false);
-  }
+    await pywebview.api.prompt_single_permission('input_monitoring');
+    await pywebview.api.open_permission_settings('input_monitoring');
+  } catch (e) { console.error('prompt input_monitoring error:', e); }
   setTimeout(() => {
-    accessibilityResetBtn.disabled = false;
-    accessibilityResetBtn.textContent = 'Fix After Update';
-  }, 3000);
-});
-
-accessibilityRestartBtn.addEventListener('click', async () => {
-  console.log('Restart Hotkeys clicked');
-  accessibilityRestartBtn.textContent = 'Restarting...';
-  accessibilityRestartBtn.disabled = true;
-  try {
-    await pywebview.api.restart_hotkey();
-    // Wait a moment for CGEventTap creation attempts
-    await new Promise(r => setTimeout(r, 3000));
-    const result = await pywebview.api.check_accessibility();
-    if (result && result.granted && result.hotkey_active) {
-      accessibilityBanner.classList.add('hidden');
-      showPopup('Hotkeys activated!');
-    } else if (result && result.granted && !result.hotkey_active) {
-      showAccessibilityStatus(
-        'Permission granted but hotkeys still not working. Try: remove PushkaVoice from Accessibility list, re-add it, enable the toggle, then restart the app.', false
-      );
-    } else {
-      showAccessibilityStatus(
-        'Still no permission. Try "Fix After Update" or restart the app.', false
-      );
+    if (!permStepInputMonitoring.classList.contains('granted')) {
+      permBtnInputMonitoring.disabled = false;
+      permBtnInputMonitoring.textContent = 'Open Settings';
     }
-  } catch (e) {
-    console.error('restart_hotkey error:', e);
-  }
-  accessibilityRestartBtn.textContent = 'Restart Hotkeys';
-  accessibilityRestartBtn.disabled = false;
+  }, 2000);
+  startPermissionsPoll();
 });
 
-function startAccessibilityPoll() {
-  if (accessibilityPollInterval) return;
-  console.log('Starting accessibility poll');
-  accessibilityPollInterval = setInterval(async () => {
+function startPermissionsPoll() {
+  if (permissionsPollInterval) return;
+  permissionsPollInterval = setInterval(async () => {
     try {
       const result = await pywebview.api.check_accessibility();
-      if (result && result.granted && result.hotkey_active) {
-        accessibilityBanner.classList.add('hidden');
-        clearInterval(accessibilityPollInterval);
-        accessibilityPollInterval = null;
-        console.log('Accessibility granted and hotkeys active, banner hidden');
-        showPopup('Hotkeys activated!');
-      } else if (result && result.granted && !result.hotkey_active) {
-        // Permission OK but CGEventTap failed — need app restart
-        showAccessibilityStatus(
-          'Permission granted! Restart the app for hotkeys to work.', false
-        );
+      if (result.accessibility) {
+        updatePermissionStep(permStepAccessibility, permIconAccessibility, permBtnAccessibility, true);
+        // Unlock Input Monitoring button
+        if (!permStepInputMonitoring.classList.contains('granted')) {
+          permBtnInputMonitoring.disabled = false;
+        }
       }
-    } catch (e) { console.error('accessibility poll error:', e); }
-  }, 2000);
+      if (result.input_monitoring) {
+        updatePermissionStep(permStepInputMonitoring, permIconInputMonitoring, permBtnInputMonitoring, true);
+      }
+      if (result.granted) {
+        clearInterval(permissionsPollInterval);
+        permissionsPollInterval = null;
+        // Brief pause to show both checkmarks, then proceed
+        setTimeout(() => setState('loading'), 800);
+      }
+    } catch (e) { console.error('permissions poll error:', e); }
+  }, 1500);
 }
 
-async function checkAccessibility() {
-  try {
-    const result = await pywebview.api.check_accessibility();
-    console.log('checkAccessibility result:', result);
-    if (result && !result.granted) {
-      accessibilityBanner.classList.remove('hidden');
-      // Auto-prompt on first launch
-      await pywebview.api.request_accessibility();
-      // Show the fix button right away — users who updated will need it
-      accessibilityResetBtn.classList.remove('hidden');
-      startAccessibilityPoll();
-    } else if (result && result.granted && !result.hotkey_active) {
-      // Permission OK but CGEventTap didn't create — show banner with restart hint
-      accessibilityBanner.classList.remove('hidden');
-      accessibilityRestartBtn.classList.remove('hidden');
-      accessibilityResetBtn.classList.remove('hidden');
-      showAccessibilityStatus(
-        'Permission granted but hotkeys not active. Try "Restart Hotkeys" or restart the app.', false
-      );
-    } else {
-      accessibilityBanner.classList.add('hidden');
-    }
-  } catch (e) {
-    console.error('checkAccessibility error:', e);
-    accessibilityBanner.classList.add('hidden');
+function stopPermissionsPoll() {
+  if (permissionsPollInterval) {
+    clearInterval(permissionsPollInterval);
+    permissionsPollInterval = null;
   }
 }
 
@@ -804,11 +755,20 @@ async function init() {
   if (!setupComplete) {
     setState('setup');
   } else {
-    setState('loading');
+    // Check permissions before proceeding to loading
+    const perms = await pywebview.api.check_accessibility();
+    if (!perms.granted) {
+      setState('permissions');
+      // Pre-populate already-granted steps
+      if (perms.accessibility) {
+        updatePermissionStep(permStepAccessibility, permIconAccessibility, permBtnAccessibility, true);
+        permBtnInputMonitoring.disabled = false;
+      }
+      startPermissionsPoll();
+    } else {
+      setState('loading');
+    }
   }
-
-  // Check accessibility permission (shows banner if needed)
-  await checkAccessibility();
 
   // Show version
   try {
@@ -857,7 +817,7 @@ async function init() {
     if (!window.pywebview || !window.pywebview.api) return;
     try {
       const backendState = await pywebview.api.get_state();
-      if (backendState !== state && state !== 'setup') {
+      if (backendState !== state && state !== 'setup' && state !== 'permissions') {
         if (backendState === 'idle' && (state === 'transcribing' || state === 'loading')) {
           await loadHistory();
         }
