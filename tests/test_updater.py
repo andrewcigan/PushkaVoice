@@ -27,13 +27,14 @@ class TestCheckForUpdate:
     @patch("utils.updater.BUILD_NUMBER", 10)
     @patch("utils.updater.urlopen")
     def test_update_available(self, mock_urlopen):
-        response_data = json.dumps({
+        # API returns a list of releases (newest first)
+        response_data = json.dumps([{
             "tag_name": "v0.1.0-beta.20",
             "html_url": "https://github.com/test/releases/v0.1.0-beta.20",
             "body": "Release notes",
             "assets": [{"name": "PushkaVoice-macos-arm64.zip",
                         "browser_download_url": "https://example.com/download.zip"}],
-        }).encode()
+        }]).encode()
         mock_resp = MagicMock()
         mock_resp.read.return_value = response_data
         mock_resp.__enter__ = lambda s: s
@@ -52,13 +53,13 @@ class TestCheckForUpdate:
     @patch("utils.updater.BUILD_NUMBER", 20)
     @patch("utils.updater.urlopen")
     def test_no_update_available(self, mock_urlopen):
-        response_data = json.dumps({
+        response_data = json.dumps([{
             "tag_name": "v0.1.0-beta.20",
             "html_url": "https://github.com/test/releases",
             "body": "",
             "assets": [{"name": "PushkaVoice-macos-arm64.zip",
                         "browser_download_url": "https://example.com/download.zip"}],
-        }).encode()
+        }]).encode()
         mock_resp = MagicMock()
         mock_resp.read.return_value = response_data
         mock_resp.__enter__ = lambda s: s
@@ -69,6 +70,21 @@ class TestCheckForUpdate:
         result = check_for_update()
 
         assert result["available"] is False
+
+    @patch("utils.updater.urlopen")
+    def test_empty_releases(self, mock_urlopen):
+        response_data = json.dumps([]).encode()
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = response_data
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        from utils.updater import check_for_update
+        result = check_for_update()
+
+        assert result["available"] is False
+        assert result["error"] == "No releases found"
 
     @patch("utils.updater.urlopen")
     def test_network_error(self, mock_urlopen):

@@ -16,7 +16,9 @@ from utils.version import VERSION, BUILD_NUMBER, GITHUB_REPO
 
 logger = logging.getLogger(__name__)
 
-GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+# Use /releases (not /releases/latest) because all our releases are
+# marked as prerelease, and GitHub's /latest endpoint skips prereleases.
+GITHUB_API = f"https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=1"
 ASSET_NAME = "PushkaVoice-macos-arm64.zip"
 
 
@@ -53,7 +55,14 @@ def check_for_update() -> dict:
     try:
         req = Request(GITHUB_API, headers={"Accept": "application/vnd.github.v3+json"})
         with urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
+            releases = json.loads(resp.read().decode("utf-8"))
+
+        if not releases:
+            result["error"] = "No releases found"
+            return result
+
+        # /releases returns a list sorted newest-first
+        data = releases[0] if isinstance(releases, list) else releases
 
         tag = data.get("tag_name", "")
         remote_build = _parse_build_number(tag)
