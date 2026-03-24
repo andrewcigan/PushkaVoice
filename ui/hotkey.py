@@ -1,9 +1,11 @@
-"""Global hotkey listener using pynput.keyboard.Listener with manual key tracking.
+"""Global hotkey listener using macOS CGEventTap (Quartz).
 
-We avoid pynput's GlobalHotKeys because it silently fails on macOS when
-modifier keys are held (key.char becomes None).  Instead we use a raw
-Listener, normalise every key event to a canonical name, track pressed
-modifiers ourselves, and fire the callback when the combination matches.
+Uses CGEventTap directly instead of pynput to avoid TSMGetInputSourceProperty
+crash on macOS 15+ where TSM functions must be called from the main thread.
+CGEventTap runs on its own CFRunLoop thread and uses virtual keycodes directly,
+so it never touches TSM.
+
+Falls back to pynput on non-macOS platforms.
 """
 import logging
 import sys
@@ -11,17 +13,7 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-try:
-    from pynput import keyboard
-    HAS_PYNPUT = True
-except ImportError:
-    HAS_PYNPUT = False
-    logger.warning("pynput not available — global hotkeys disabled")
-
 # ── macOS virtual-key-code → character mapping ──────────────────────
-# When modifier keys (especially Cmd) are held, pynput reports
-# KeyCode(vk=…, char=None).  We need the vk table to recover the
-# intended character.
 _VK_MAP = {
     0: 'a', 1: 's', 2: 'd', 3: 'f', 4: 'h', 5: 'g', 6: 'z', 7: 'x',
     8: 'c', 9: 'v', 11: 'b', 12: 'q', 13: 'w', 14: 'e', 15: 'r',
@@ -32,57 +24,13 @@ _VK_MAP = {
     43: ',', 44: '/', 45: 'n', 46: 'm', 47: '.', 49: 'space',
 }
 
-# ── Modifier key → canonical name ──────────────────────────────────
+# Modifier flag masks from CGEvent
+_kCGEventFlagMaskCommand = 0x00100000
+_kCGEventFlagMaskShift = 0x00020000
+_kCGEventFlagMaskAlternate = 0x00080000
+_kCGEventFlagMaskControl = 0x00040000
+
 _MODIFIER_NAMES = {'cmd', 'ctrl', 'alt', 'shift'}
-
-
-def _build_modifier_map():
-    """Build pynput Key → canonical modifier name mapping."""
-    if not HAS_PYNPUT:
-        return {}
-    m = {}
-    for attr, name in [
-        ('cmd', 'cmd'), ('cmd_l', 'cmd'), ('cmd_r', 'cmd'),
-        ('ctrl', 'ctrl'), ('ctrl_l', 'ctrl'), ('ctrl_r', 'ctrl'),
-        ('alt', 'alt'), ('alt_l', 'alt'), ('alt_r', 'alt'),
-        ('shift', 'shift'), ('shift_l', 'shift'), ('shift_r', 'shift'),
-    ]:
-        key = getattr(keyboard.Key, attr, None)
-        if key is not None:
-            m[key] = name
-    return m
-
-
-_MODIFIER_MAP = _build_modifier_map()
-
-
-def _normalize_key(key):
-    """Convert a pynput key event to a canonical lowercase string.
-
-    Returns a modifier name ('cmd', 'ctrl', 'alt', 'shift'),
-    a character ('d', '1', 'space'), a special key name ('f5'),
-    or None if unrecognised.
-    """
-    if not HAS_PYNPUT:
-        return None
-
-    # Modifier keys
-    if isinstance(key, keyboard.Key):
-        mod = _MODIFIER_MAP.get(key)
-        if mod:
-            return mod
-        # Non-modifier special keys (F1–F20, esc, tab, …)
-        return key.name.lower() if hasattr(key, 'name') else None
-
-    if isinstance(key, keyboard.KeyCode):
-        # When no modifier obscures the character
-        if key.char is not None:
-            return key.char.lower()
-        # Fallback: virtual key code (macOS)
-        if key.vk is not None:
-            return _VK_MAP.get(key.vk)
-
-    return None
 
 
 def parse_hotkey(hotkey_string: str):
@@ -108,34 +56,48 @@ def parse_hotkey(hotkey_string: str):
     return frozenset(modifiers), key
 
 
+def _get_modifiers_from_flags(flags):
+    """Extract modifier set from CGEvent flags."""
+    mods = set()
+    if flags & _kCGEventFlagMaskCommand:
+        mods.add('cmd')
+    if flags & _kCGEventFlagMaskShift:
+        mods.add('shift')
+    if flags & _kCGEventFlagMaskAlternate:
+        mods.add('alt')
+    if flags & _kCGEventFlagMaskControl:
+        mods.add('ctrl')
+    return mods
+
+
 class HotkeyManager:
     """Listens for a global hotkey and calls *callback* when it fires."""
 
     def __init__(self, hotkey_string: str, callback):
         self._hotkey_string = hotkey_string
         self._callback = callback
-        self._listener = None
+        self._listener_thread = None
+        self._run_loop = None
+        self._run_loop_source = None
         self._required_modifiers, self._required_key = parse_hotkey(hotkey_string)
-        self._pressed_modifiers: set[str] = set()
+        self._fired = False
+        self._running = False
         self._lock = threading.Lock()
-        self._fired = False  # prevent auto-repeat while held
-
-    # ── public API ──────────────────────────────────────────────────
 
     def start(self):
-        if not HAS_PYNPUT:
-            logger.error("Cannot start hotkey listener — pynput not installed")
+        if sys.platform != "darwin":
+            logger.warning("CGEventTap hotkeys only supported on macOS")
             return
 
         try:
-            self._pressed_modifiers.clear()
+            self._running = True
             self._fired = False
-            self._listener = keyboard.Listener(
-                on_press=self._on_press,
-                on_release=self._on_release,
+            self._listener_thread = threading.Thread(
+                target=self._run_event_tap,
+                daemon=True,
+                name="HotkeyListener",
             )
-            self._listener.daemon = True
-            self._listener.start()
+            self._listener_thread.start()
             logger.info(
                 "Hotkey listener started: %s  (modifiers=%s, key=%s)",
                 self._hotkey_string, self._required_modifiers, self._required_key,
@@ -144,12 +106,18 @@ class HotkeyManager:
             logger.error("Failed to start hotkey listener: %s", e)
 
     def stop(self):
-        if self._listener:
-            self._listener.stop()
-            self._listener = None
+        self._running = False
+        if self._run_loop is not None:
+            try:
+                import Quartz
+                Quartz.CFRunLoopStop(self._run_loop)
+            except Exception:
+                pass
+        self._run_loop = None
+        self._run_loop_source = None
+        self._listener_thread = None
 
     def restart(self):
-        """Restart the listener (e.g. after Accessibility permission is granted)."""
         logger.info("Restarting hotkey listener...")
         self.stop()
         self.start()
@@ -160,36 +128,95 @@ class HotkeyManager:
         self._required_modifiers, self._required_key = parse_hotkey(new_hotkey_string)
         self.start()
 
-    # ── internal ────────────────────────────────────────────────────
+    def _run_event_tap(self):
+        """Run CGEventTap on a background thread with its own CFRunLoop."""
+        try:
+            import Quartz
 
-    def _on_press(self, key):
-        with self._lock:
-            name = _normalize_key(key)
-            if name is None:
-                return
-
-            if name in _MODIFIER_NAMES:
-                self._pressed_modifiers.add(name)
-                return
-
-            # Non-modifier key — check if it matches the hotkey
-            if name == self._required_key \
-                    and self._pressed_modifiers == self._required_modifiers \
-                    and not self._fired:
-                self._fired = True
-                logger.info("Hotkey triggered: %s", self._hotkey_string)
+            def callback(proxy, event_type, event, refcon):
                 try:
-                    self._callback()
-                except Exception as e:
-                    logger.error("Hotkey callback error: %s", e)
+                    # Re-enable tap if it gets disabled
+                    if event_type == Quartz.kCGEventTapDisabledByTimeout:
+                        logger.warning("Event tap disabled by timeout, re-enabling...")
+                        if self._tap:
+                            Quartz.CGEventTapEnable(self._tap, True)
+                        return event
+                    if event_type == Quartz.kCGEventTapDisabledByUserInput:
+                        return event
 
-    def _on_release(self, key):
-        with self._lock:
-            name = _normalize_key(key)
-            if name is None:
+                    keycode = Quartz.CGEventGetIntegerValueField(
+                        event, Quartz.kCGKeyboardEventKeycode
+                    )
+                    flags = Quartz.CGEventGetFlags(event)
+
+                    if event_type == Quartz.kCGEventKeyDown:
+                        key_name = _VK_MAP.get(keycode)
+                        if key_name is None:
+                            return event
+
+                        mods = _get_modifiers_from_flags(flags)
+
+                        with self._lock:
+                            if (key_name == self._required_key
+                                    and mods == self._required_modifiers
+                                    and not self._fired):
+                                self._fired = True
+                                logger.info("Hotkey triggered: %s", self._hotkey_string)
+                                try:
+                                    self._callback()
+                                except Exception as e:
+                                    logger.error("Hotkey callback error: %s", e)
+
+                    elif event_type == Quartz.kCGEventKeyUp:
+                        with self._lock:
+                            self._fired = False
+
+                except Exception as e:
+                    logger.error("Event tap callback error: %s", e)
+
+                return event
+
+            # Create event tap for key down and key up events
+            event_mask = (
+                Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown)
+                | Quartz.CGEventMaskBit(Quartz.kCGEventKeyUp)
+            )
+
+            self._tap = Quartz.CGEventTapCreate(
+                Quartz.kCGSessionEventTap,
+                Quartz.kCGHeadInsertEventTap,
+                Quartz.kCGEventTapOptionListenOnly,  # passive listener
+                event_mask,
+                callback,
+                None,
+            )
+
+            if self._tap is None:
+                logger.error(
+                    "Failed to create CGEventTap — Accessibility permission required. "
+                    "Hotkeys will not work until permission is granted."
+                )
                 return
 
-            if name in _MODIFIER_NAMES:
-                self._pressed_modifiers.discard(name)
-            # Reset the repeat guard so the hotkey can fire again
-            self._fired = False
+            self._run_loop_source = Quartz.CFMachPortCreateRunLoopSource(
+                None, self._tap, 0
+            )
+            self._run_loop = Quartz.CFRunLoopGetCurrent()
+            Quartz.CFRunLoopAddSource(
+                self._run_loop,
+                self._run_loop_source,
+                Quartz.kCFRunLoopDefaultMode,
+            )
+            Quartz.CGEventTapEnable(self._tap, True)
+
+            logger.info("CGEventTap created and running")
+
+            # Run the loop — blocks until stop() calls CFRunLoopStop
+            Quartz.CFRunLoopRun()
+
+            logger.info("CGEventTap run loop exited")
+
+        except ImportError:
+            logger.error("Quartz not available — hotkeys disabled on this system")
+        except Exception as e:
+            logger.error("CGEventTap failed: %s", e, exc_info=True)
