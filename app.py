@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+import atexit
+import faulthandler
 import logging
 import os
+import signal
 import sys
 import threading
 import time
+import traceback
 from pathlib import Path
 
 # Fix SSL certificates for PyInstaller bundles on macOS.
@@ -33,9 +37,9 @@ else:
 
 sys.path.insert(0, str(APP_DIR))
 
-# Setup logging
+# Setup logging — DEBUG level to catch everything
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
     handlers=[
         logging.StreamHandler(),
@@ -44,8 +48,164 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ── Crash logging ────────────────────────────────────────────────
+CRASH_LOG = DATA_DIR / "crash.log"
+
+# Enable faulthandler for segfaults and fatal signals
+try:
+    _fault_file = open(CRASH_LOG, "a")
+    faulthandler.enable(file=_fault_file, all_threads=True)
+except Exception:
+    faulthandler.enable()
+
+
+def _crash_excepthook(exc_type, exc_value, exc_tb):
+    """Global exception handler — writes to crash.log and stderr."""
+    msg = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    crash_msg = f"\n{'='*60}\nUNCAUGHT EXCEPTION at {ts}\n{msg}{'='*60}\n"
+    try:
+        with open(CRASH_LOG, "a") as f:
+            f.write(crash_msg)
+    except Exception:
+        pass
+    logger.critical("UNCAUGHT EXCEPTION:\n%s", msg)
+    sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+
+sys.excepthook = _crash_excepthook
+
+
+def _thread_excepthook(args):
+    """Catch unhandled exceptions in threads."""
+    msg = "".join(traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback))
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    crash_msg = f"\n{'='*60}\nTHREAD EXCEPTION ({args.thread}) at {ts}\n{msg}{'='*60}\n"
+    try:
+        with open(CRASH_LOG, "a") as f:
+            f.write(crash_msg)
+    except Exception:
+        pass
+    logger.critical("THREAD EXCEPTION in %s:\n%s", args.thread, msg)
+
+
+threading.excepthook = _thread_excepthook
+
+
+def _signal_handler(signum, frame):
+    """Log when the process receives a signal (SIGTERM, SIGINT, etc.)."""
+    sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+    msg = f"Received signal {sig_name} ({signum})"
+    logger.warning(msg)
+    try:
+        with open(CRASH_LOG, "a") as f:
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"\n{'='*60}\nSIGNAL {sig_name} at {ts}\n")
+            if frame:
+                f.write("".join(traceback.format_stack(frame)))
+            f.write(f"{'='*60}\n")
+    except Exception:
+        pass
+    sys.exit(128 + signum)
+
+
+for _sig in (signal.SIGTERM, signal.SIGINT):
+    signal.signal(_sig, _signal_handler)
+if hasattr(signal, 'SIGHUP'):
+    signal.signal(signal.SIGHUP, _signal_handler)
+
+
+def _atexit_handler():
+    logger.info("App exiting (atexit). PID=%d", os.getpid())
+    try:
+        with open(CRASH_LOG, "a") as f:
+            ts = time.strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"\nAPP EXIT (atexit) at {ts}, PID={os.getpid()}\n")
+    except Exception:
+        pass
+
+
+atexit.register(_atexit_handler)
+
+
+def _log_app_identity():
+    """Log everything about how macOS sees this app."""
+    logger.info("="*60)
+    logger.info("APP IDENTITY DIAGNOSTICS")
+    logger.info("  PID: %d", os.getpid())
+    logger.info("  sys.executable: %s", sys.executable)
+    logger.info("  sys.argv: %s", sys.argv)
+    logger.info("  frozen: %s", getattr(sys, 'frozen', False))
+    logger.info("  _MEIPASS: %s", getattr(sys, '_MEIPASS', 'N/A'))
+    logger.info("  CWD: %s", os.getcwd())
+    logger.info("  APP_DIR: %s", APP_DIR)
+    logger.info("  DATA_DIR: %s", DATA_DIR)
+
+    if getattr(sys, 'frozen', False):
+        # Find .app bundle
+        exe_path = Path(sys.executable).resolve()
+        logger.info("  Resolved executable: %s", exe_path)
+        for parent in exe_path.parents:
+            if parent.suffix == '.app':
+                logger.info("  .app bundle: %s", parent)
+                logger.info("  .app bundle name: %s", parent.name)
+                # Read Info.plist
+                plist_path = parent / "Contents" / "Info.plist"
+                if plist_path.exists():
+                    try:
+                        import plistlib
+                        with open(plist_path, "rb") as f:
+                            plist = plistlib.load(f)
+                        logger.info("  CFBundleName: %s", plist.get('CFBundleName', 'NOT SET'))
+                        logger.info("  CFBundleDisplayName: %s", plist.get('CFBundleDisplayName', 'NOT SET'))
+                        logger.info("  CFBundleIdentifier: %s", plist.get('CFBundleIdentifier', 'NOT SET'))
+                        logger.info("  CFBundleExecutable: %s", plist.get('CFBundleExecutable', 'NOT SET'))
+                        logger.info("  CFBundleVersion: %s", plist.get('CFBundleVersion', 'NOT SET'))
+                    except Exception as e:
+                        logger.error("  Failed to read Info.plist: %s", e)
+                else:
+                    logger.warning("  Info.plist NOT FOUND at %s", plist_path)
+                break
+        else:
+            logger.warning("  Could not find .app bundle in parents of %s", exe_path)
+
+    # Check process name as macOS sees it
+    if sys.platform == "darwin":
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["ps", "-p", str(os.getpid()), "-o", "comm="],
+                capture_output=True, text=True, timeout=5,
+            )
+            logger.info("  Process name (ps): %s", result.stdout.strip())
+        except Exception as e:
+            logger.warning("  Could not get process name: %s", e)
+
+        # Check LaunchServices registration
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["mdfind", "kMDItemCFBundleIdentifier == 'com.pushkavoice.app'"],
+                capture_output=True, text=True, timeout=10,
+            )
+            paths = result.stdout.strip()
+            if paths:
+                logger.info("  LaunchServices registered paths for com.pushkavoice.app:")
+                for p in paths.split("\n"):
+                    logger.info("    %s", p)
+            else:
+                logger.info("  LaunchServices: no paths found for com.pushkavoice.app")
+        except Exception as e:
+            logger.warning("  LaunchServices check failed: %s", e)
+
+    logger.info("  CRASH_LOG: %s", CRASH_LOG)
+    logger.info("="*60)
+
 
 def main():
+    logger.info("PushkaVoice starting, PID=%d", os.getpid())
+    _log_app_identity()
+
     # Load .env (check both DATA_DIR and APP_DIR for bundled mode)
     from dotenv import load_dotenv
     for env_dir in [DATA_DIR, APP_DIR]:
@@ -81,8 +241,10 @@ def main():
     api.set_statusbar(statusbar)
 
     # Check Accessibility permission (prompts user on first launch)
-    from utils.accessibility import prompt_accessibility
+    from utils.accessibility import prompt_accessibility, is_accessibility_granted
+    logger.info("Checking Accessibility before prompt: granted=%s", is_accessibility_granted())
     prompt_accessibility()
+    logger.info("Checking Accessibility after prompt: granted=%s", is_accessibility_granted())
 
     # Setup hotkey
     from ui.hotkey import HotkeyManager
@@ -137,9 +299,22 @@ def main():
         min_size=(380, 500),
     )
 
-    logger.info("Starting GigaAM Dictation app...")
-    webview.start(debug=False)
+    logger.info("Starting GigaAM Dictation app (pywebview)...")
+    try:
+        webview.start(debug=False)
+    except Exception as e:
+        logger.critical("pywebview.start() CRASHED: %s", e, exc_info=True)
+        raise
+    finally:
+        logger.info("pywebview.start() returned. App shutting down.")
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except SystemExit as e:
+        logger.info("SystemExit(%s)", e.code)
+        raise
+    except Exception as e:
+        logger.critical("main() CRASHED: %s", e, exc_info=True)
+        raise
