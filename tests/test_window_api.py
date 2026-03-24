@@ -262,7 +262,8 @@ class TestApiStopRecording:
         result = api.stop_recording()
 
         assert "error" in result
-        assert api.state == "error"
+        # State returns to idle so user can try again
+        assert api.state == "idle"
 
 
 class TestApiTranscribeFile:
@@ -310,7 +311,8 @@ class TestApiTranscribeFile:
 
         result = api._transcribe_file(wav_path)
         assert "error" in result
-        assert api.state == "error"
+        # State returns to idle so user can try again
+        assert api.state == "idle"
 
     @patch("ui.window.copy_and_paste")
     @patch("ui.window.clean_text", return_value="текст")
@@ -482,6 +484,62 @@ class TestApiLogs:
         result = api.open_log_file()
         assert result["ok"] is True
         assert "path" in result
+
+
+class TestApiAccessibility:
+    def test_check_accessibility_returns_dict(self, api):
+        result = api.check_accessibility()
+        assert isinstance(result, dict)
+        assert "granted" in result
+
+    def test_request_accessibility_returns_dict(self, api):
+        result = api.request_accessibility()
+        assert isinstance(result, dict)
+        assert "granted" in result
+
+
+class TestApiErrorRecovery:
+    @patch("ui.window.copy_and_paste", side_effect=Exception("paste failed"))
+    @patch("ui.window.clean_text", return_value="текст")
+    def test_clipboard_error_still_returns_idle(self, mock_clean, mock_paste, api, dictation_dir):
+        """Clipboard failure should not leave state stuck."""
+        api.config.set("auto_paste", True)
+        wav_path = str(dictation_dir / "test.wav")
+        with wave.open(wav_path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(np.zeros(1600, dtype=np.int16).tobytes())
+
+        result = api._transcribe_file(wav_path)
+        # Should still succeed despite clipboard error
+        assert "text" in result
+        assert api.state == "idle"
+
+    @patch("ui.window.clean_text", side_effect=Exception("LLM timeout"))
+    def test_llm_cleanup_error_uses_raw_text(self, mock_clean, api, dictation_dir):
+        """LLM cleanup failure should fallback to raw text."""
+        api.config.set("auto_paste", False)
+        wav_path = str(dictation_dir / "test.wav")
+        with wave.open(wav_path, "wb") as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(16000)
+            wf.writeframes(np.zeros(1600, dtype=np.int16).tobytes())
+
+        result = api._transcribe_file(wav_path)
+        assert "text" in result
+        # Should use the raw transcriber output
+        assert result["text"] == "тестовый текст для транскрипции"
+        assert api.state == "idle"
+
+    @patch("ui.window.AudioRecorder")
+    def test_start_recording_mic_error_returns_idle(self, mock_rec_cls, api):
+        """Microphone error should return to idle, not get stuck."""
+        mock_rec_cls.side_effect = Exception("No audio device")
+        result = api.start_recording()
+        assert "error" in result
+        assert api.state == "idle"
 
 
 class TestApiGetDevices:

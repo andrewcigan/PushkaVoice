@@ -42,7 +42,10 @@ class Api:
 
     @state.setter
     def state(self, value):
+        old = self._state
         self._state = value
+        if old != value:
+            logger.info(f"State: {old} -> {value}")
         if self._statusbar:
             self._statusbar.set_state(value)
 
@@ -121,24 +124,34 @@ class Api:
     def start_recording(self):
         with self._lock:
             if self._state not in ("idle", "error"):
-                return {"error": "Not ready"}
+                logger.warning(f"Cannot start recording in state: {self._state}")
+                return {"error": f"Not ready (state={self._state})"}
 
+            prev_state = self._state
             self.state = "recording"
             self._recording_start_time = time.time()
-            self._recorder = AudioRecorder(
-                device_id=self.config.microphone_device_id,
-                sample_rate=self.config.sample_rate,
-            )
-            self._recorder.start()
-            logger.info("Recording started (from UI)")
+            logger.info(f"Starting recording (prev_state={prev_state}, device={self.config.microphone_device_id})")
+            try:
+                self._recorder = AudioRecorder(
+                    device_id=self.config.microphone_device_id,
+                    sample_rate=self.config.sample_rate,
+                )
+                self._recorder.start()
+            except Exception as e:
+                logger.error(f"Failed to start recorder: {e}", exc_info=True)
+                self.state = "idle"
+                return {"error": f"Microphone error: {e}"}
+            logger.info("Recording started")
             return {"ok": True}
 
     def stop_recording(self):
         with self._lock:
             if self._state != "recording":
+                logger.warning(f"stop_recording called but state={self._state}")
                 return {"error": "Not recording"}
 
             self.state = "transcribing"
+            logger.info("State -> transcribing")
 
         duration = time.time() - self._recording_start_time
         logger.info(f"Recording stopped. Duration: {duration:.1f}s")
@@ -148,7 +161,8 @@ class Api:
         self._recorder = None
 
         if not wav_path:
-            self.state = "error"
+            logger.warning("No audio captured (empty wav_path)")
+            self.state = "idle"
             return {"error": "No audio captured"}
 
         return self._transcribe_file(wav_path, duration)
@@ -157,6 +171,7 @@ class Api:
         """Transcribe a WAV file. Used by both stop_recording and retry."""
         try:
             start = time.time()
+            logger.info(f"Starting transcription: {wav_path}")
             text = self.transcriber.transcribe(wav_path)
             elapsed = time.time() - start
             logger.info(f"Transcribed in {elapsed:.1f}s: {text[:80]}...")
@@ -167,6 +182,7 @@ class Api:
                 with open(err_path, "w", encoding="utf-8") as f:
                     f.write("No speech detected")
                 self.state = "idle"
+                logger.info("No speech detected, returning to idle")
                 return {"error": "No speech detected", "wav_path": wav_path}
 
             # Clean text with LLM if available
@@ -174,10 +190,13 @@ class Api:
             if self.config.get("llm_cleanup", True):
                 provider = self.config.get("llm_provider", "local")
                 logger.info(f"Cleaning text with LLM (provider: {provider})...")
-                text = clean_text(text, self.config)
-                if text != raw_text:
-                    logger.info(f"LLM cleaned: '{raw_text[:50]}' -> '{text[:50]}'")
-
+                try:
+                    text = clean_text(text, self.config)
+                    if text != raw_text:
+                        logger.info(f"LLM cleaned: '{raw_text[:50]}' -> '{text[:50]}'")
+                except Exception as e:
+                    logger.warning(f"LLM cleanup failed, using raw text: {e}")
+                    text = raw_text
 
             # Save text file (cleaned version)
             txt_path = wav_path.replace(".wav", ".txt")
@@ -195,21 +214,31 @@ class Api:
                 os.remove(err_path)
 
             # Copy and paste
-            if self.config.auto_paste:
-                copy_and_paste(text)
-            else:
-                copy_to_clipboard(text)
+            try:
+                if self.config.auto_paste:
+                    copy_and_paste(text)
+                else:
+                    copy_to_clipboard(text)
+                logger.info("Text copied to clipboard")
+            except Exception as e:
+                logger.warning(f"Clipboard operation failed: {e}")
 
             self.state = "idle"
+            logger.info("Transcription complete, returning to idle")
             return {"text": text, "raw_text": raw_text, "duration": duration, "elapsed": elapsed}
 
         except Exception as e:
-            logger.error(f"Transcription error: {e}")
+            logger.error(f"Transcription error: {e}", exc_info=True)
             # Save error info but keep WAV
-            err_path = wav_path.replace(".wav", ".error.txt")
-            with open(err_path, "w", encoding="utf-8") as f:
-                f.write(str(e))
-            self.state = "error"
+            try:
+                err_path = wav_path.replace(".wav", ".error.txt")
+                with open(err_path, "w", encoding="utf-8") as f:
+                    f.write(str(e))
+            except Exception:
+                pass
+            # Always return to idle so the user can try again
+            self.state = "idle"
+            logger.info("Transcription failed, returning to idle")
             return {"error": str(e), "wav_path": wav_path}
 
     def retry_transcription(self, wav_path):
@@ -315,8 +344,13 @@ class Api:
 
     def check_accessibility(self):
         """Check if Accessibility permission is granted (non-blocking)."""
-        return is_accessibility_granted()
+        granted = is_accessibility_granted()
+        logger.debug(f"Accessibility check: granted={granted}")
+        return {"granted": granted}
 
     def request_accessibility(self):
         """Prompt user for Accessibility permission (opens System Settings)."""
-        return prompt_accessibility()
+        logger.info("Requesting Accessibility permission...")
+        result = prompt_accessibility()
+        logger.info(f"Accessibility prompt result: {result}")
+        return {"granted": result}

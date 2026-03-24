@@ -73,9 +73,12 @@ class AudioRecorder:
         return resampled.astype(np.int16).reshape(-1, 1)
 
     def stop(self, save_dir=None) -> str:
+        logger.info("Stopping recording...")
         self._recording = False
         if self._record_thread:
             self._record_thread.join(timeout=3.0)
+            if self._record_thread.is_alive():
+                logger.warning("Record thread did not stop within 3s timeout")
             self._record_thread = None
 
         with self._lock:

@@ -689,6 +689,11 @@ body {
   font-weight: 600;
 }
 
+.history-actions {
+  display: flex;
+  gap: 6px;
+}
+
 .history-list {
   display: flex;
   flex-direction: column;

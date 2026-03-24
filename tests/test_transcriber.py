@@ -455,6 +455,67 @@ class TestTranscriberTranscribe:
         assert "сегмент" in result
 
 
+class TestTranscriberLongformFallback:
+    """Test that longform transcription falls back to standard when pyannote/ffmpeg missing."""
+
+    @patch("core.transcriber.get_wav_duration", return_value=30.0)
+    def test_falls_back_on_import_error(self, mock_dur, mock_gigaam):
+        mock_model = MagicMock()
+        mock_model.transcribe_longform.side_effect = ImportError("No module named 'pyannote'")
+        mock_model.transcribe.return_value = "fallback result"
+        mock_gigaam.load_model.return_value = mock_model
+
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+        result = t.transcribe("test.wav")
+
+        assert result == "fallback result"
+        mock_model.transcribe.assert_called_once_with("test.wav")
+
+    @patch("core.transcriber.get_wav_duration", return_value=30.0)
+    def test_falls_back_on_module_not_found(self, mock_dur, mock_gigaam):
+        mock_model = MagicMock()
+        mock_model.transcribe_longform.side_effect = ModuleNotFoundError("No module named 'pyannote'")
+        mock_model.transcribe.return_value = "fallback result"
+        mock_gigaam.load_model.return_value = mock_model
+
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+        result = t.transcribe("test.wav")
+
+        assert result == "fallback result"
+
+    @patch("core.transcriber.get_wav_duration", return_value=30.0)
+    def test_falls_back_on_ffmpeg_not_found(self, mock_dur, mock_gigaam):
+        mock_model = MagicMock()
+        mock_model.transcribe_longform.side_effect = FileNotFoundError("[Errno 2] No such file or directory: 'ffmpeg'")
+        mock_model.transcribe.return_value = "fallback result"
+        mock_gigaam.load_model.return_value = mock_model
+
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+        result = t.transcribe("test.wav")
+
+        assert result == "fallback result"
+
+    @patch("core.transcriber.get_wav_duration", return_value=30.0)
+    def test_longform_success_no_fallback(self, mock_dur, mock_gigaam):
+        mock_model = MagicMock()
+        mock_model.transcribe_longform.return_value = [{"transcription": "long text"}]
+        mock_gigaam.load_model.return_value = mock_model
+
+        from core.transcriber import Transcriber
+        t = Transcriber()
+        t.load_model()
+        result = t.transcribe("test.wav")
+
+        assert "long text" in result
+        mock_model.transcribe.assert_not_called()
+
+
 class TestSSLCertFix:
     """Verify SSL certificate environment is configured for bundled app."""
 

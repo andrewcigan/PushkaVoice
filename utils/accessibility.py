@@ -14,11 +14,14 @@ logger = logging.getLogger(__name__)
 def is_accessibility_granted() -> bool:
     """Return True if the app already has Accessibility permission."""
     if sys.platform != "darwin":
+        logger.debug("Not macOS, skipping accessibility check")
         return True  # not macOS — assume OK
 
     try:
         import ApplicationServices as AS
-        return AS.AXIsProcessTrusted()
+        result = AS.AXIsProcessTrusted()
+        logger.debug("AXIsProcessTrusted() = %s", result)
+        return bool(result)
     except Exception as e:
         logger.warning("Cannot check Accessibility: %s", e)
         return True  # can't check — assume OK

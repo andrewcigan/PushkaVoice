@@ -176,7 +176,8 @@ class TestE2EErrorRecovery:
         api.start_recording()
         result = api.stop_recording()
         assert "error" in result
-        assert api.state == "error"
+        # After error, state goes back to idle so user can try again
+        assert api.state == "idle"
 
         # Check error file exists
         err_path = wav_path.replace(".wav", ".error.txt")
@@ -210,7 +211,8 @@ class TestE2EErrorRecovery:
         result = api.stop_recording()
         assert "error" in result
         assert "No audio captured" in result["error"]
-        assert api.state == "error"
+        # After error, state goes back to idle so user can try again
+        assert api.state == "idle"
 
 
 class TestE2EConfigPersistence:

@@ -217,16 +217,30 @@ resetSetupBtn.addEventListener('click', async () => {
 // Record button click
 recordBtn.addEventListener('click', async () => {
   if (state === 'idle') {
-    await pywebview.api.start_recording();
-    setState('recording');
+    console.log('Starting recording...');
+    const result = await pywebview.api.start_recording();
+    if (result && result.error) {
+      showPopup(result.error, true);
+      console.error('start_recording error:', result.error);
+    } else {
+      setState('recording');
+    }
   } else if (state === 'recording') {
     setState('transcribing');
-    const result = await pywebview.api.stop_recording();
-    if (result && result.text) {
-      showPopup('Text copied!');
-      await loadHistory();
-    } else if (result && result.error) {
-      showPopup('Error: ' + result.error, true);
+    console.log('Stopping recording...');
+    try {
+      const result = await pywebview.api.stop_recording();
+      console.log('stop_recording result:', result);
+      if (result && result.text) {
+        showPopup('Text copied!');
+        await loadHistory();
+      } else if (result && result.error) {
+        showPopup('Error: ' + result.error, true);
+        await loadHistory();
+      }
+    } catch (e) {
+      console.error('stop_recording exception:', e);
+      showPopup('Error: ' + e, true);
     }
     setState('idle');
   }
@@ -294,6 +308,13 @@ openrouterModelInput.addEventListener('input', () => {
 // Open folder
 openFolderBtn.addEventListener('click', async () => {
   await pywebview.api.open_dictations_folder();
+});
+
+// Main screen logs button
+const mainViewLogsBtn = document.getElementById('main-view-logs-btn');
+mainViewLogsBtn.addEventListener('click', async () => {
+  logsModal.classList.remove('hidden');
+  await refreshLogs();
 });
 
 // ── Logs ──
@@ -499,36 +520,54 @@ const accessibilityGrantBtn = document.getElementById('accessibility-grant-btn')
 let accessibilityPollInterval = null;
 
 accessibilityGrantBtn.addEventListener('click', async () => {
-  await pywebview.api.request_accessibility();
-  // Start polling — user needs to flip the toggle in System Settings
-  startAccessibilityPoll();
+  console.log('Grant Access clicked');
+  try {
+    const result = await pywebview.api.request_accessibility();
+    console.log('request_accessibility result:', result);
+    if (result && result.granted) {
+      accessibilityBanner.classList.add('hidden');
+    } else {
+      startAccessibilityPoll();
+    }
+  } catch (e) {
+    console.error('request_accessibility error:', e);
+  }
 });
 
 function startAccessibilityPoll() {
   if (accessibilityPollInterval) return;
+  console.log('Starting accessibility poll');
   accessibilityPollInterval = setInterval(async () => {
     try {
-      const granted = await pywebview.api.check_accessibility();
-      if (granted) {
+      const result = await pywebview.api.check_accessibility();
+      console.log('accessibility poll:', result);
+      if (result && result.granted) {
         accessibilityBanner.classList.add('hidden');
         clearInterval(accessibilityPollInterval);
         accessibilityPollInterval = null;
+        console.log('Accessibility granted, banner hidden');
       }
-    } catch (e) { /* ignore */ }
+    } catch (e) { console.error('accessibility poll error:', e); }
   }, 2000);
 }
 
 async function checkAccessibility() {
   try {
-    const granted = await pywebview.api.check_accessibility();
-    if (!granted) {
+    const result = await pywebview.api.check_accessibility();
+    console.log('checkAccessibility result:', result);
+    if (result && !result.granted) {
       accessibilityBanner.classList.remove('hidden');
       // Auto-prompt on first launch
       await pywebview.api.request_accessibility();
       startAccessibilityPoll();
+    } else {
+      // Already granted or not on macOS
+      accessibilityBanner.classList.add('hidden');
     }
   } catch (e) {
+    console.error('checkAccessibility error:', e);
     // Not on macOS or check unavailable — hide banner
+    accessibilityBanner.classList.add('hidden');
   }
 }
 

@@ -272,15 +272,18 @@ class Transcriber:
         self._ready_event.wait(timeout=timeout)
         return self.is_ready
 
-    def transcribe(self, audio_path: str) -> str:
-        if not self.is_ready:
-            raise RuntimeError("Model not loaded yet")
+    def _transcribe_short(self, audio_path: str) -> str:
+        """Transcribe a short audio file (<25s) using standard method."""
+        logger.info("Using transcribe (short)...")
+        result = self._model.transcribe(audio_path)
+        if isinstance(result, list):
+            return " ".join(str(r) for r in result)
+        return str(result)
 
-        duration = get_wav_duration(audio_path)
-        logger.info(f"Audio duration: {duration:.1f}s")
-
-        if duration > LONGFORM_THRESHOLD:
-            logger.info("Using transcribe_longform...")
+    def _transcribe_long(self, audio_path: str) -> str:
+        """Transcribe a long audio file (>25s) using longform method with fallback."""
+        logger.info("Using transcribe_longform...")
+        try:
             result = self._model.transcribe_longform(audio_path)
             if isinstance(result, list):
                 texts = []
@@ -293,9 +296,23 @@ class Transcriber:
                         texts.append(str(segment))
                 return " ".join(texts)
             return str(result)
+        except (ImportError, ModuleNotFoundError) as e:
+            logger.warning(f"Longform transcription unavailable ({e}), falling back to standard transcribe")
+            return self._transcribe_short(audio_path)
+        except FileNotFoundError as e:
+            # ffmpeg or other binary not found
+            logger.warning(f"Longform transcription failed ({e}), falling back to standard transcribe")
+            return self._transcribe_short(audio_path)
+
+    def transcribe(self, audio_path: str) -> str:
+        if not self.is_ready:
+            raise RuntimeError("Model not loaded yet")
+
+        logger.info(f"Transcribing: {audio_path}")
+        duration = get_wav_duration(audio_path)
+        logger.info(f"Audio duration: {duration:.1f}s")
+
+        if duration > LONGFORM_THRESHOLD:
+            return self._transcribe_long(audio_path)
         else:
-            logger.info("Using transcribe...")
-            result = self._model.transcribe(audio_path)
-            if isinstance(result, list):
-                return " ".join(str(r) for r in result)
-            return str(result)
+            return self._transcribe_short(audio_path)
